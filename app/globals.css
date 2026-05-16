@@ -170,6 +170,12 @@ button { font-family: inherit; }
   color: var(--text-primary);
 }
 
+@media (max-width: 1023px) {
+  .app-logo {
+    display: none;
+  }
+}
+
 .app-logo span {
   color: var(--accent);
 }
@@ -937,17 +943,6 @@ button { font-family: inherit; }
 }
 
 @media (max-width: 480px) {
-  .app-header {
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem 0.75rem;
-  }
-  
-  .app-nav {
-    width: 100%;
-    justify-content: center;
-  }
-  
   .nav-btn {
     flex: 1;
     text-align: center;
