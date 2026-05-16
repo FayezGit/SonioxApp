@@ -181,6 +181,18 @@ export default function TranscriptionStudio() {
     finalTextRef.current  = '';
     speakerMapRef.current = new Map();
 
+    // Microphone access requires a secure context (HTTPS or localhost).
+    // On mobile, plain HTTP connections disable navigator.mediaDevices entirely.
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setError(
+        'Microphone access requires HTTPS. ' +
+        'You are on HTTP — open the app via https:// or run the dev server ' +
+        'with: npm run dev:https'
+      );
+      return;
+    }
+
+
     const client = new SonioxClient({
       config: async () => {
         setStatus('Fetching token…');
