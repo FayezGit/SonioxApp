@@ -111,38 +111,35 @@ button { font-family: inherit; }
 .app-shell {
   min-height: 100dvh;
   display: flex;
-  flex-direction: column; /* Mobile first */
+  flex-direction: column; /* Mobile first: Top Header */
   overflow-x: hidden;
 }
 
 @media (min-width: 1024px) {
   .app-shell {
-    flex-direction: row; /* Desktop sidebar */
+    flex-direction: row; /* Desktop: Sidebar */
   }
 }
 
 .app-header {
-  position: fixed;
+  position: sticky;
+  top: 0;
   z-index: 50;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  transition: all var(--ease);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(8, 11, 20, 0.8);
+  border-bottom: 1px solid var(--glass-border);
+  padding: 1.5rem 1.25rem 0;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
 }
 
-/* Mobile Bottom Bar */
 @media (max-width: 1023px) {
   .app-header {
-    bottom: 0;
-    left: 0;
     width: 100%;
-    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
-    border-width: 1px 0 0 0;
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
+    background: transparent;
+    border: none;
     height: auto;
   }
 }
@@ -150,6 +147,7 @@ button { font-family: inherit; }
 /* Desktop Sidebar */
 @media (min-width: 1024px) {
   .app-header {
+    position: fixed;
     top: 0;
     left: 0;
     width: 280px;
@@ -159,6 +157,8 @@ button { font-family: inherit; }
     justify-content: flex-start;
     align-items: stretch;
     border-width: 0 1px 0 0;
+    border-right-color: rgba(255, 255, 255, 0.05); /* more subtle */
+    border-bottom: none;
     background: var(--bg-surface);
   }
 }
@@ -182,20 +182,14 @@ button { font-family: inherit; }
 
 .app-nav {
   display: flex;
+  flex-direction: row;
+  width: auto;
+  background: var(--glass-bg);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-border);
   gap: 4px;
-  background: transparent;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-}
-
-@media (max-width: 1023px) {
-  .app-nav {
-    flex-direction: row;
-    width: 100%;
-    max-width: 400px;
-    justify-content: space-around;
-  }
+  margin-top: 0;
 }
 
 @media (min-width: 1024px) {
@@ -204,41 +198,39 @@ button { font-family: inherit; }
     width: 100%;
     gap: 0.5rem;
     margin-top: 2rem;
+    background: transparent;
+    padding: 0;
+    border: none;
+    border-radius: 0;
   }
 }
 
 .nav-btn {
   width: auto;
-  padding: 10px 18px;
-  font-size: 0.9375rem;
+  padding: 8px 18px;
+  font-size: 0.875rem;
   font-weight: 500;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   border: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--ease);
+  transition: color var(--ease), background var(--ease), box-shadow var(--ease);
+  white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-@media (max-width: 1023px) {
-  .nav-btn {
-    flex-direction: column;
-    gap: 4px;
-    font-size: 0.75rem;
-    padding: 8px;
-    flex: 1;
-    justify-content: center;
-  }
-  .nav-icon { font-size: 1.25rem; }
+  gap: 8px;
+  justify-content: center;
 }
 
 @media (min-width: 1024px) {
   .nav-btn {
     width: 100%;
     justify-content: flex-start;
+    padding: 10px 18px;
+    font-size: 0.9375rem;
+    border-radius: var(--radius-md);
+    gap: 12px;
   }
 }
 
@@ -246,9 +238,15 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  width: 20px;
   flex-shrink: 0;
   font-size: 1.125rem;
+}
+
+@media (min-width: 1024px) {
+  .nav-icon {
+    width: 24px;
+  }
 }
 
 .nav-text {
@@ -272,7 +270,7 @@ button { font-family: inherit; }
   max-width: var(--content-max-width);
   margin: 0 auto;
   overflow-x: hidden;
-  padding: 2.5rem 1.5rem 6rem; /* extra bottom padding for mobile */
+  padding: 1.5rem 1.25rem 4rem;
 }
 
 @media (min-width: 1024px) {
@@ -943,6 +941,17 @@ button { font-family: inherit; }
 }
 
 @media (max-width: 480px) {
+  .app-header {
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 0.75rem;
+  }
+  
+  .app-nav {
+    width: 100%;
+    justify-content: center;
+  }
+  
   .nav-btn {
     flex: 1;
     text-align: center;

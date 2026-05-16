@@ -13,9 +13,6 @@ export default function Home() {
     <div className="app-shell">
       {/* Sidebar / Header */}
       <header className="app-header">
-        <div className="app-logo">
-          🎙 Soniox <span>Studio</span>
-        </div>
         <nav className="app-nav">
           {(['studio', 'library'] as Tab[]).map((tab) => (
             <button
