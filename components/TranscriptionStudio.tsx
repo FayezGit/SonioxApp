@@ -14,20 +14,90 @@ const SPEAKER_COLORS = [
 ];
 
 const LANGUAGES: { label: string; code: string }[] = [
-  { label: 'Auto-detect', code: '' },
-  { label: 'English',     code: 'en' },
-  { label: 'Hindi',       code: 'hi' },
-  { label: 'Urdu',        code: 'ur' },
+  { label: 'Auto-detect (all 60+ languages)', code: '' },
+  // ── A ──
+  { label: 'Afrikaans',   code: 'af' },
+  { label: 'Albanian',    code: 'sq' },
   { label: 'Arabic',      code: 'ar' },
-  { label: 'Spanish',     code: 'es' },
-  { label: 'French',      code: 'fr' },
-  { label: 'German',      code: 'de' },
-  { label: 'Portuguese',  code: 'pt' },
-  { label: 'Russian',     code: 'ru' },
+  { label: 'Azerbaijani', code: 'az' },
+  // ── B ──
+  { label: 'Basque',      code: 'eu' },
+  { label: 'Belarusian',  code: 'be' },
+  { label: 'Bengali',     code: 'bn' },
+  { label: 'Bosnian',     code: 'bs' },
+  { label: 'Bulgarian',   code: 'bg' },
+  // ── C ──
+  { label: 'Catalan',     code: 'ca' },
   { label: 'Chinese',     code: 'zh' },
+  { label: 'Croatian',    code: 'hr' },
+  { label: 'Czech',       code: 'cs' },
+  // ── D ──
+  { label: 'Danish',      code: 'da' },
+  { label: 'Dutch',       code: 'nl' },
+  // ── E ──
+  { label: 'English',     code: 'en' },
+  { label: 'Estonian',    code: 'et' },
+  // ── F ──
+  { label: 'Finnish',     code: 'fi' },
+  { label: 'French',      code: 'fr' },
+  // ── G ──
+  { label: 'Galician',    code: 'gl' },
+  { label: 'German',      code: 'de' },
+  { label: 'Greek',       code: 'el' },
+  { label: 'Gujarati',    code: 'gu' },
+  // ── H ──
+  { label: 'Hebrew',      code: 'he' },
+  { label: 'Hindi',       code: 'hi' },
+  { label: 'Hungarian',   code: 'hu' },
+  // ── I ──
+  { label: 'Indonesian',  code: 'id' },
+  { label: 'Italian',     code: 'it' },
+  // ── J ──
   { label: 'Japanese',    code: 'ja' },
+  // ── K ──
+  { label: 'Kannada',     code: 'kn' },
+  { label: 'Kazakh',      code: 'kk' },
   { label: 'Korean',      code: 'ko' },
+  // ── L ──
+  { label: 'Latvian',     code: 'lv' },
+  { label: 'Lithuanian',  code: 'lt' },
+  // ── M ──
+  { label: 'Macedonian',  code: 'mk' },
+  { label: 'Malay',       code: 'ms' },
+  { label: 'Malayalam',   code: 'ml' },
+  { label: 'Marathi',     code: 'mr' },
+  // ── N ──
+  { label: 'Norwegian',   code: 'no' },
+  // ── P ──
+  { label: 'Persian',     code: 'fa' },
+  { label: 'Polish',      code: 'pl' },
+  { label: 'Portuguese',  code: 'pt' },
+  { label: 'Punjabi',     code: 'pa' },
+  // ── R ──
+  { label: 'Romanian',    code: 'ro' },
+  { label: 'Russian',     code: 'ru' },
+  // ── S ──
+  { label: 'Serbian',     code: 'sr' },
+  { label: 'Slovak',      code: 'sk' },
+  { label: 'Slovenian',   code: 'sl' },
+  { label: 'Spanish',     code: 'es' },
+  { label: 'Swahili',     code: 'sw' },
+  { label: 'Swedish',     code: 'sv' },
+  // ── T ──
+  { label: 'Tagalog',     code: 'tl' },
+  { label: 'Tamil',       code: 'ta' },
+  { label: 'Telugu',      code: 'te' },
+  { label: 'Thai',        code: 'th' },
+  { label: 'Turkish',     code: 'tr' },
+  // ── U ──
+  { label: 'Ukrainian',   code: 'uk' },
+  { label: 'Urdu',        code: 'ur' },
+  // ── V ──
+  { label: 'Vietnamese',  code: 'vi' },
+  // ── W ──
+  { label: 'Welsh',       code: 'cy' },
 ];
+
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
