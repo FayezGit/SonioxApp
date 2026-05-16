@@ -8,14 +8,23 @@
  * Format:      JSON array of {@link Transcript}, newest first.
  */
 
+/** One speaker-attributed block in a saved or live transcript. */
+export interface TranscriptSegment {
+  speaker?: string;
+  color: string;
+  text: string;
+}
+
 /**
  * A single saved transcript produced from a real-time recording session.
  */
 export interface Transcript {
   /** UUID generated at save time via `crypto.randomUUID()`. */
   id: string;
-  /** Full concatenated text of all finalized tokens. */
+  /** Flat text (preview / legacy); derived from segments when saving. */
   text: string;
+  /** Speaker-diarized segments; preferred for display and download. */
+  segments?: TranscriptSegment[];
   /** ISO 8601 timestamp of when the transcript was saved. */
   date: string;
   /** Total recording duration in whole seconds. */

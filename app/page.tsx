@@ -11,12 +11,8 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-      {/* Sticky header */}
+      {/* Sidebar / Header */}
       <header className="app-header">
-        <div className="app-logo">
-          Soniox<span>App</span>
-        </div>
-
         <nav className="app-nav">
           {(['studio', 'library'] as Tab[]).map((tab) => (
             <button
@@ -25,8 +21,14 @@ export default function Home() {
               onClick={() => setActiveTab(tab)}
               className={`nav-btn${activeTab === tab ? ' active' : ''}`}
             >
-              {tab === 'studio'  && '🎙 Studio'}
-              {tab === 'library' && '📚 Library'}
+              <span className="nav-icon">
+                {tab === 'studio'  && '🎙'}
+                {tab === 'library' && '📚'}
+              </span>
+              <span className="nav-text">
+                {tab === 'studio'  && (tab === 'studio' ? 'Studio' : '')}
+                {tab === 'library' && (tab === 'library' ? 'Library' : '')}
+              </span>
             </button>
           ))}
         </nav>

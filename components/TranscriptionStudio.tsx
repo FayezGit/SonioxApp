@@ -1,141 +1,11 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { SonioxClient, Recording, RealtimeToken } from '@soniox/client';
-import { saveTranscript } from '@/lib/storage';
-
-/* ─── Constants ────────────────────────────────────────────────────── */
-
-const SPEAKER_COLORS = [
-  'var(--speaker-1)',
-  'var(--speaker-2)',
-  'var(--speaker-3)',
-  'var(--speaker-4)',
-];
-
-const LANGUAGES: { label: string; code: string }[] = [
-  { label: 'Auto-detect (all 60+ languages)', code: '' },
-  // ── A ──
-  { label: 'Afrikaans',   code: 'af' },
-  { label: 'Albanian',    code: 'sq' },
-  { label: 'Arabic',      code: 'ar' },
-  { label: 'Azerbaijani', code: 'az' },
-  // ── B ──
-  { label: 'Basque',      code: 'eu' },
-  { label: 'Belarusian',  code: 'be' },
-  { label: 'Bengali',     code: 'bn' },
-  { label: 'Bosnian',     code: 'bs' },
-  { label: 'Bulgarian',   code: 'bg' },
-  // ── C ──
-  { label: 'Catalan',     code: 'ca' },
-  { label: 'Chinese',     code: 'zh' },
-  { label: 'Croatian',    code: 'hr' },
-  { label: 'Czech',       code: 'cs' },
-  // ── D ──
-  { label: 'Danish',      code: 'da' },
-  { label: 'Dutch',       code: 'nl' },
-  // ── E ──
-  { label: 'English',     code: 'en' },
-  { label: 'Estonian',    code: 'et' },
-  // ── F ──
-  { label: 'Finnish',     code: 'fi' },
-  { label: 'French',      code: 'fr' },
-  // ── G ──
-  { label: 'Galician',    code: 'gl' },
-  { label: 'German',      code: 'de' },
-  { label: 'Greek',       code: 'el' },
-  { label: 'Gujarati',    code: 'gu' },
-  // ── H ──
-  { label: 'Hebrew',      code: 'he' },
-  { label: 'Hindi',       code: 'hi' },
-  { label: 'Hungarian',   code: 'hu' },
-  // ── I ──
-  { label: 'Indonesian',  code: 'id' },
-  { label: 'Italian',     code: 'it' },
-  // ── J ──
-  { label: 'Japanese',    code: 'ja' },
-  // ── K ──
-  { label: 'Kannada',     code: 'kn' },
-  { label: 'Kazakh',      code: 'kk' },
-  { label: 'Korean',      code: 'ko' },
-  // ── L ──
-  { label: 'Latvian',     code: 'lv' },
-  { label: 'Lithuanian',  code: 'lt' },
-  // ── M ──
-  { label: 'Macedonian',  code: 'mk' },
-  { label: 'Malay',       code: 'ms' },
-  { label: 'Malayalam',   code: 'ml' },
-  { label: 'Marathi',     code: 'mr' },
-  // ── N ──
-  { label: 'Norwegian',   code: 'no' },
-  // ── P ──
-  { label: 'Persian',     code: 'fa' },
-  { label: 'Polish',      code: 'pl' },
-  { label: 'Portuguese',  code: 'pt' },
-  { label: 'Punjabi',     code: 'pa' },
-  // ── R ──
-  { label: 'Romanian',    code: 'ro' },
-  { label: 'Russian',     code: 'ru' },
-  // ── S ──
-  { label: 'Serbian',     code: 'sr' },
-  { label: 'Slovak',      code: 'sk' },
-  { label: 'Slovenian',   code: 'sl' },
-  { label: 'Spanish',     code: 'es' },
-  { label: 'Swahili',     code: 'sw' },
-  { label: 'Swedish',     code: 'sv' },
-  // ── T ──
-  { label: 'Tagalog',     code: 'tl' },
-  { label: 'Tamil',       code: 'ta' },
-  { label: 'Telugu',      code: 'te' },
-  { label: 'Thai',        code: 'th' },
-  { label: 'Turkish',     code: 'tr' },
-  // ── U ──
-  { label: 'Ukrainian',   code: 'uk' },
-  { label: 'Urdu',        code: 'ur' },
-  // ── V ──
-  { label: 'Vietnamese',  code: 'vi' },
-  // ── W ──
-  { label: 'Welsh',       code: 'cy' },
-];
-
-
-/* ─── Types ─────────────────────────────────────────────────────────── */
-
-/** A stable finalized segment grouped by speaker. */
-type FinalSegment = { speaker?: string; color: string; text: string };
-
-/* ─── Helpers ───────────────────────────────────────────────────────── */
-
-/**
- * Build stable final segments from finalized tokens only.
- * Tokens with the same speaker are merged into one segment.
- * Mutates speakerMap — call only inside event handlers, never during render.
- */
-function buildFinalSegments(
-  finalTokens: RealtimeToken[],
-  speakerMap: Map<string, number>,
-): FinalSegment[] {
-  const segments: FinalSegment[] = [];
-  let current: FinalSegment | null = null;
-
-  for (const t of finalTokens) {
-    const speaker = t.speaker;
-    let color = SPEAKER_COLORS[0];
-    if (speaker) {
-      if (!speakerMap.has(speaker)) {
-        speakerMap.set(speaker, speakerMap.size % SPEAKER_COLORS.length);
-      }
-      color = SPEAKER_COLORS[speakerMap.get(speaker)!];
-    }
-    if (!current || current.speaker !== speaker) {
-      current = { speaker, color, text: t.text };
-      segments.push(current);
-    } else {
-      current.text += t.text;
-    }
-  }
-  return segments;
-}
+import languages from '@/data/languages.json';
+import TranscriptView from '@/components/TranscriptView';
+import { saveTranscript, type TranscriptSegment } from '@/lib/storage';
+import { buildFinalSegments } from '@/lib/transcript';
 
 /* ─── Component ─────────────────────────────────────────────────────── */
 
@@ -153,14 +23,18 @@ export default function TranscriptionStudio() {
   const [durationSecs, setDurationSecs]     = useState(0);
 
   // ── Transcript display state ───────────────────────────────────────
-  // finalSegments: stable, ONLY grows; non-finals never go here
-  const [finalSegments, setFinalSegments] = useState<FinalSegment[]>([]);
-  // currentHypothesis: current non-final hypothesis text (replaces itself)
-  const [hypothesis, setHypothesis]       = useState('');
+  // displaySegments: merged final and non-final tokens for seamless real-time rendering
+  const [displaySegments, setDisplaySegments] = useState<TranscriptSegment[]>([]);
 
   // ── Refs (never read during render) ───────────────────────────────
   const recordingRef  = useRef<Recording | null>(null);
   const speakerMapRef = useRef<Map<string, number>>(new Map());
+  const transcriptPanelRef = useRef<HTMLDivElement>(null);
+  /**
+   * Accumulates finalized tokens across result frames (each final is sent once).
+   * Used to rebuild stable segments; never read during render.
+   */
+  const finalTokensRef = useRef<RealtimeToken[]>([]);
   /**
    * Accumulates ONLY finalized text across all result frames.
    * Updated on every result event. Used for saving — never set in state.
@@ -168,17 +42,24 @@ export default function TranscriptionStudio() {
    */
   const finalTextRef  = useRef('');
 
+  // ── Auto-scroll ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (transcriptPanelRef.current) {
+      transcriptPanelRef.current.scrollTop = transcriptPanelRef.current.scrollHeight;
+    }
+  }, [displaySegments]);
+
   /* ── Start recording ─────────────────────────────────────────────── */
   // sessionStart is passed in from the onClick handler (where Date.now() is
   // called) so this function body stays pure and satisfies react-hooks/purity.
   const startRecording = async (sessionStart: number) => {
     setError(null);
     setSaved(false);
-    setFinalSegments([]);
-    setHypothesis('');
+    setDisplaySegments([]);
     setStatus('');
     setFinalCharCount(0);
     setDurationSecs(0);
+    finalTokensRef.current = [];
     finalTextRef.current  = '';
     speakerMapRef.current = new Map();
 
@@ -235,15 +116,23 @@ export default function TranscriptionStudio() {
     recording.on('connected', () => setStatus('recording'));
 
     /**
-     * result.tokens is a COMPLETE SNAPSHOT of all tokens from session start.
-     * Finals: stable, only grows. Non-finals: current hypothesis, replaces itself.
+     * Each result frame carries NEW tokens only — not the full session history.
+     * Finals are sent once and appended; non-finals are the current in-flight guess.
      */
     recording.on('result', (result) => {
-      const finals    = result.tokens.filter(t => t.is_final);
+      const newFinals = result.tokens.filter(t => t.is_final);
       const nonFinals = result.tokens.filter(t => !t.is_final);
-      finalTextRef.current = finals.map(t => t.text).join('').trim();
-      setFinalSegments(buildFinalSegments(finals, speakerMapRef.current));
-      setHypothesis(nonFinals.map(t => t.text).join(''));
+
+      if (newFinals.length > 0) {
+        finalTokensRef.current.push(...newFinals);
+        for (const t of newFinals) {
+          finalTextRef.current += t.text;
+        }
+      }
+
+      setDisplaySegments(
+        buildFinalSegments([...finalTokensRef.current, ...nonFinals], speakerMapRef.current)
+      );
     });
 
     recording.on('error', (err) => {
@@ -265,7 +154,9 @@ export default function TranscriptionStudio() {
     });
 
     recording.on('finished', () => {
-      setHypothesis('');
+      setDisplaySegments(
+        buildFinalSegments(finalTokensRef.current, speakerMapRef.current)
+      );
       trySave(sessionStart);
       setStatus('stopped');
       setIsRecording(false);
@@ -283,12 +174,16 @@ export default function TranscriptionStudio() {
    * Safe to call multiple times — setSaved(true) is idempotent in practice.
    */
   const trySave = (sessionStartTime: number) => {
-    const text = finalTextRef.current.trim();
+    const segments = buildFinalSegments(
+      finalTokensRef.current,
+      speakerMapRef.current,
+    );
+    const text = segments.map(s => s.text).join('').trim() || finalTextRef.current.trim();
     if (!text) return;
     const durationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);
     setDurationSecs(durationSeconds);
     setFinalCharCount(text.length);
-    saveTranscript({ text, durationSeconds });
+    saveTranscript({ text, segments, durationSeconds });
     setSaved(true);
   };
 
@@ -307,23 +202,26 @@ export default function TranscriptionStudio() {
 
   const isListening = isRecording && status === 'recording';
   const isBusy      = isLoading || isRecording;  // disables the language select
-  const hasContent  = finalSegments.length > 0 || hypothesis.length > 0;
+  const hasContent  = displaySegments.length > 0;
 
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
-    <div style={{ maxWidth: '860px', margin: '0 auto' }}>
+    <div className="studio-container">
 
-      {/* ── Heading ── */}
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 className="section-heading">Live Transcription Studio</h1>
-        <p className="section-sub">
-          Real-time speech-to-text · 60+ languages · multi-speaker diarization
-        </p>
+      <div className="section-header-row">
+        <div>
+          <h1 className="section-heading">Live Transcription Studio</h1>
+          <p className="section-sub">
+            Real-time speech-to-text · multi-speaker diarization
+          </p>
+        </div>
       </div>
+
+      <div className="spacer-2rem" />
 
       {/* ── Error banner ── */}
       {error && (
-        <div className="alert-error" style={{ marginBottom: '1.5rem' }}>
+        <div className="alert-error">
           ⚠️ {error}
         </div>
       )}
@@ -346,7 +244,7 @@ export default function TranscriptionStudio() {
           disabled={isBusy}
           className="lang-select"
         >
-          {LANGUAGES.map(l => (
+          {languages.map(l => (
             <option key={l.code} value={l.code}>{l.label}</option>
           ))}
         </select>
@@ -400,48 +298,25 @@ export default function TranscriptionStudio() {
       </div>
 
       {/* ── Transcript area ── */}
-      <div className="glass-panel" style={{ padding: '1.5rem' }}>
-        <div className="transcript-area">
-          {!hasContent ? (
-            <div className="transcript-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="1.5">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
-              </svg>
-              <span>
-                {!isRecording
-                  ? 'Choose a language and click Start Recording'
-                  : isListening
-                    ? 'Waiting for speech…'
-                    : status}
-              </span>
-            </div>
-          ) : (
-            <div className="transcript-content">
-
-              {/* Finalized segments — never change once rendered */}
-              {finalSegments.map((seg, i) => (
-                <div key={i} className="transcript-segment">
-                  {seg.speaker && (
-                    <span className="speaker-label" style={{ color: seg.color }}>
-                      {seg.speaker}
-                    </span>
-                  )}
-                  <p className="segment-text">{seg.text}</p>
-                </div>
-              ))}
-
-              {/* Current hypothesis — ephemeral non-final text */}
-              {hypothesis && (
-                <div className="transcript-segment hypothesis">
-                  <p className="segment-text hypothesis-text">{hypothesis}</p>
-                </div>
-              )}
-
-            </div>
-          )}
-        </div>
+      <div className="transcript-panel" ref={transcriptPanelRef}>
+        {!hasContent ? (
+          <div className="transcript-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+            </svg>
+            <span>
+              {!isRecording
+                ? 'Choose a language and click Start Recording'
+                : isListening
+                  ? 'Waiting for speech…'
+                  : status}
+            </span>
+          </div>
+        ) : (
+          <TranscriptView segments={displaySegments} />
+        )}
       </div>
 
       {/* ── Stats footer ── */}
