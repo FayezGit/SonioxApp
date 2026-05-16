@@ -352,7 +352,7 @@ button { font-family: inherit; }
   gap: 8px;
   background: var(--accent);
   color: #fff;
-  border: none;
+  border: 1px solid transparent;
   padding: 13px 28px;
   border-radius: var(--radius-pill);
   font-weight: 600;
@@ -425,6 +425,25 @@ button { font-family: inherit; }
 }
 
 .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.studio-actions {
+  display: flex;
+  gap: 0.875rem;
+  width: auto;
+}
+
+.studio-actions .btn-secondary {
+  padding: 13px 28px;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  border-color: rgba(255, 255, 255, 0.2); /* brighter border */
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.studio-actions .btn-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+}
 
 /* ─── Recording Pulse ────────────────────────────────────────────── */
 .pulse-ring {
@@ -897,9 +916,17 @@ button { font-family: inherit; }
     box-sizing: border-box;
   }
 
-  .btn-primary, .btn-danger {
+  .btn-primary, .btn-danger, .btn-secondary {
     width: 100%;
     justify-content: center;
+    padding: 10px 20px;
+    font-size: 0.875rem;
+  }
+
+  .studio-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
   }
 
   .library-card {

@@ -21,6 +21,7 @@ export default function TranscriptionStudio() {
   // Used only for the footer display — updated from event handlers
   const [finalCharCount, setFinalCharCount] = useState(0);
   const [durationSecs, setDurationSecs]     = useState(0);
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
   // ── Transcript display state ───────────────────────────────────────
   // displaySegments: merged final and non-final tokens for seamless real-time rendering
@@ -55,13 +56,18 @@ export default function TranscriptionStudio() {
   const startRecording = async (sessionStart: number) => {
     setError(null);
     setSaved(false);
-    setDisplaySegments([]);
     setStatus('');
-    setFinalCharCount(0);
-    setDurationSecs(0);
-    finalTokensRef.current = [];
-    finalTextRef.current  = '';
-    speakerMapRef.current = new Map();
+    // Only clear if this is the absolute beginning of a session
+    if (finalTokensRef.current.length === 0) {
+      setDisplaySegments([]);
+      setFinalCharCount(0);
+      setDurationSecs(0);
+      finalTextRef.current  = '';
+      speakerMapRef.current = new Map();
+      setSessionStartTime(sessionStart);
+    } else if (!sessionStartTime) {
+      setSessionStartTime(sessionStart);
+    }
 
     // Microphone requires a secure context (HTTPS or localhost).
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -137,7 +143,8 @@ export default function TranscriptionStudio() {
 
     recording.on('error', (err) => {
       console.error('[Soniox] error:', err);
-      trySave(sessionStart);
+      // Don't auto-save on error anymore, let the user decide
+      updateFinalDuration();
       // Surface friendly messages for the most common mobile failures
       const raw = err.message ?? String(err);
       const friendly =
@@ -157,7 +164,7 @@ export default function TranscriptionStudio() {
       setDisplaySegments(
         buildFinalSegments(finalTokensRef.current, speakerMapRef.current)
       );
-      trySave(sessionStart);
+      updateFinalDuration();
       setStatus('stopped');
       setIsRecording(false);
       setIsStopping(false);
@@ -169,22 +176,38 @@ export default function TranscriptionStudio() {
   };
 
   /**
-   * Save whatever final text has accumulated so far.
-   * Reads from the ref (not state) so it always sees the latest value.
-   * Safe to call multiple times — setSaved(true) is idempotent in practice.
+   * Updates the duration based on the current elapsed time in this sub-session.
    */
-  const trySave = (sessionStartTime: number) => {
+  const updateFinalDuration = () => {
+    if (sessionStartTime) {
+      const elapsed = Math.round((Date.now() - sessionStartTime) / 1000);
+      setDurationSecs(prev => prev + elapsed);
+      setSessionStartTime(null);
+    }
+  };
+
+  /**
+   * Manually save the accumulated transcript and clear the studio.
+   */
+  const handleSave = () => {
     const segments = buildFinalSegments(
       finalTokensRef.current,
       speakerMapRef.current,
     );
     const text = segments.map(s => s.text).join('').trim() || finalTextRef.current.trim();
     if (!text) return;
-    const durationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);
-    setDurationSecs(durationSeconds);
-    setFinalCharCount(text.length);
-    saveTranscript({ text, segments, durationSeconds });
+
+    saveTranscript({ text, segments, durationSeconds: durationSecs });
+    
+    // Clear everything for a fresh start
     setSaved(true);
+    setFinalCharCount(0);
+    setDurationSecs(0);
+    setDisplaySegments([]);
+    finalTokensRef.current = [];
+    finalTextRef.current = '';
+    speakerMapRef.current = new Map();
+    setSessionStartTime(null);
   };
 
   /* ── Stop recording ──────────────────────────────────────────────── */
@@ -257,13 +280,23 @@ export default function TranscriptionStudio() {
             {status || 'Connecting…'}
           </button>
         ) : !isRecording ? (
-          <button
-            id="btn-start-recording"
-            onClick={() => startRecording(Date.now())}
-            className="btn-primary"
-          >
-            <span>🎙</span> Start Recording
-          </button>
+          <div className="studio-actions">
+            <button
+              id="btn-start-recording"
+              onClick={() => startRecording(Date.now())}
+              className="btn-primary"
+            >
+              <span>🎙</span> {hasContent ? 'Resume' : 'Start'} Recording
+            </button>
+            {hasContent && (
+              <button
+                onClick={handleSave}
+                className="btn-secondary"
+              >
+                💾 Save to Library
+              </button>
+            )}
+          </div>
         ) : (
           <button
             id="btn-stop-recording"
@@ -273,7 +306,7 @@ export default function TranscriptionStudio() {
           >
             {isStopping
               ? <><div className="spinner" /> Stopping…</>
-              : <><span>⏹</span> Stop Recording</>}
+              : <><span>⏸</span> Pause Recording</>}
           </button>
         )}
 
@@ -299,20 +332,14 @@ export default function TranscriptionStudio() {
 
       {/* ── Transcript area ── */}
       <div className="transcript-panel" ref={transcriptPanelRef}>
-        {!hasContent ? (
+        {!hasContent && !isRecording ? (
           <div className="transcript-placeholder">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="1.5">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
             </svg>
-            <span>
-              {!isRecording
-                ? 'Choose a language and click Start Recording'
-                : isListening
-                  ? 'Waiting for speech…'
-                  : status}
-            </span>
+            <span>Choose a language and click Start Recording</span>
           </div>
         ) : (
           <TranscriptView segments={displaySegments} />
