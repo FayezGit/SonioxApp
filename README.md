@@ -26,7 +26,7 @@ A full-stack Next.js web application for real-time speech transcription using th
 |---|---|
 | **Live Transcription** | Real-time speech-to-text via the Soniox WebSocket API (`stt-rt-v4` model) |
 | **Speaker Diarization** | Identifies and labels multiple speakers with distinct color coding |
-| **Transcript Library** | Saves finished recordings to browser `localStorage`; supports download (`.txt`) and delete |
+| **Transcript Library** | Saves finished recordings to browser **IndexedDB (Dexie.js)**; supports download (`.txt`) and delete |
 | **Secure Key Handling** | The permanent API key never leaves the server; the browser only ever holds short-lived temporary keys (1-hour TTL) |
 
 ---
@@ -40,7 +40,8 @@ A full-stack Next.js web application for real-time speech transcription using th
 | Language | TypeScript | ^5 |
 | Styling | Vanilla CSS + Tailwind (utilities only) | 4.x |
 | Soniox (browser) | `@soniox/client` | ^2.0.2 |
-| Soniox (server) | `@soniox/node` | ^2.0.3 |
+| soniox (server) | `@soniox/node` | ^2.0.3 |
+| Storage | [Dexie.js](https://dexie.org) (IndexedDB) | ^3.2.7 |
 | Font | Inter (via `next/font/google`) | — |
 
 ---
@@ -60,7 +61,7 @@ soniox/
 │   ├── TranscriptionStudio.tsx  # Live recording UI
 │   └── Library.tsx              # Saved transcript browser
 ├── lib/
-│   └── storage.ts          # localStorage CRUD for transcripts
+│   └── storage.ts          # IndexedDB CRUD for transcripts (Dexie)
 ├── next.config.ts
 ├── tsconfig.json
 └── .env.local              # SONIOX_API_KEY (not committed)
@@ -136,7 +137,7 @@ Browser                          Next.js Server              Soniox Cloud
         │     Audio chunks streamed over WS ───────────────────────> │
         │     result events (tokens) <──────────────────────────────  │
         │                                                             │
-        │  5. Stop → save to localStorage                             │
+        │  5. Stop → save to IndexedDB                                │
 ```
 
 ### Security model
@@ -176,72 +177,13 @@ Mints a short-lived temporary API key for the browser to open a WebSocket transc
 
 ---
 
-## Components
+## Core Components
 
 ### `TranscriptionStudio`
-
-**File:** `components/TranscriptionStudio.tsx`
-**Route:** Studio tab (default)
-
-The main recording interface. Manages the full lifecycle of a real-time transcription session.
-
-**State:**
-
-| State | Type | Purpose |
-|---|---|---|
-| `isRecording` | `boolean` | Whether a session is active |
-| `isStopping` | `boolean` | Waiting for the server to finish |
-| `segments` | `Segment[]` | Rendered transcript (final + non-final, grouped by speaker) |
-| `finalCharCount` | `number` | Count of finalized characters (shown as footer) |
-| `error` | `string \| null` | Error banner text |
-| `saved` | `boolean` | Whether the transcript was saved after stopping |
-
-**Refs (never read during render):**
-
-| Ref | Purpose |
-|---|---|
-| `recordingRef` | The `Recording` instance; used in `stopRecording()` |
-| `startTimeRef` | Unix timestamp when recording began; used to compute duration |
-| `finalTokensRef` | Accumulated finalized tokens across result frames |
-| `speakerMapRef` | Maps speaker ID → color index for stable color assignment |
-
-**Recording flow:**
-
-1. User clicks **Start Recording**
-2. A `SonioxClient` is created with an async `config` function that calls `POST /api/token`
-3. `client.realtime.record({ model: 'stt-rt-v4', enable_speaker_diarization: true })` is called synchronously
-4. Event listeners are attached (`result`, `error`, `finished`) before any async work starts
-5. The `MicrophoneSource` inside the SDK handles `getUserMedia` + `MediaRecorder` internally
-6. Each `result` event carries a snapshot of current tokens; final tokens are accumulated in `finalTokensRef`
-7. User clicks **Stop Recording** → `recording.stop()` (gracefully flushes pending audio)
-8. Final tokens are joined and saved to `localStorage` via `saveTranscript()`
-
-**Token accumulation logic:**
-
-```
-result.tokens = [final_token_A, final_token_B, non_final_token_C]
-                        │                              │
-                        ▼                              ▼
-          appended to finalTokensRef          replaces prior non-finals
-                        │
-                        └──► displayed segments = [...finals, ...non-finals]
-```
-
----
+The main recording interface. It handles the full lifecycle of a Soniox real-time session, including microphone access, token accumulation, and speaker-grouped segment rendering.
 
 ### `Library`
-
-**File:** `components/Library.tsx`
-**Route:** Library tab
-
-Displays and manages all transcripts saved in `localStorage`.
-
-**Key implementation details:**
-
-- **No `useEffect` for initial load** — uses a lazy `useState` initializer (`() => getTranscripts()`) to read `localStorage` once synchronously at mount, avoiding a flash of empty content
-- **Download** — creates a `Blob`, appends an `<a>` to `document.body`, triggers `.click()`, then removes it (required for Firefox); `URL.revokeObjectURL` is deferred 100ms to avoid racing the browser download
-- **Delete** — calls `deleteTranscript(id)` then re-reads `localStorage` into state
-- Text preview is clamped to 2 lines via `-webkit-line-clamp`
+An archive of saved sessions stored in IndexedDB. It features automatic data migration, asynchronous loading for performance, and tools for downloading or deleting past transcripts.
 
 ---
 
@@ -249,14 +191,15 @@ Displays and manages all transcripts saved in `localStorage`.
 
 ### `lib/storage.ts`
 
-Client-side only. All data is stored under the `localStorage` key `soniox_transcripts`.
+Client-side only. All data is stored in **IndexedDB** under the database name `SonioxDatabase`.
 
 #### `Transcript` interface
 
 ```typescript
 interface Transcript {
-  id: string;              // crypto.randomUUID()
+  id: string;              // UUID
   text: string;            // Concatenated final tokens
+  segments?: Segment[];    // Speaker-diarized blocks
   date: string;            // ISO 8601 timestamp
   durationSeconds: number; // Rounded seconds from start → stop
 }
@@ -266,9 +209,10 @@ interface Transcript {
 
 | Function | Signature | Description |
 |---|---|---|
-| `getTranscripts` | `() => Transcript[]` | Read all transcripts. Returns `[]` on error or SSR. |
-| `saveTranscript` | `(Omit<Transcript, 'id' \| 'date'>) => void` | Prepend a new transcript (newest first). |
-| `deleteTranscript` | `(id: string) => void` | Remove transcript by ID. |
+| `getTranscripts` | `() => Promise<Transcript[]>` | Read all transcripts. Returns `[]` on error. |
+| `saveTranscript` | `(Omit<Transcript, 'id' \| 'date'>) => Promise<boolean>` | Save a new transcript. |
+| `deleteTranscript` | `(id: string) => Promise<void>` | Remove transcript by ID. |
+| `migrateFromLocalStorage` | `() => Promise<void>` | One-time migration of legacy data. |
 
 All functions are SSR-safe (`typeof window === 'undefined'` guard).
 
@@ -276,53 +220,13 @@ All functions are SSR-safe (`typeof window === 'undefined'` guard).
 
 ## Design System
 
-**File:** `app/globals.css`
+The app uses a consistent design system defined in `app/globals.css` using CSS custom properties. It features a dark-themed, glassmorphic UI with vibrant accent colors for different speakers.
 
-The entire visual design is driven by CSS custom properties defined in `:root`.
-
-### Color Tokens
-
-| Token | Value | Usage |
-|---|---|---|
-| `--bg-base` | `#080b14` | Page background |
-| `--bg-surface` | `#0d1117` | Elevated surfaces |
-| `--accent` | `#4f8ef7` | Primary blue — buttons, links |
-| `--accent-glow` | `rgba(79,142,247,0.45)` | Button glow effect |
-| `--green` | `#34d399` | Success states |
-| `--red` | `#f87171` | Error states, stop button |
-| `--speaker-1..4` | blue/green/purple/yellow | Per-speaker label colors |
-| `--glass-bg` | `rgba(255,255,255,0.045)` | Card / panel backgrounds |
-| `--glass-border` | `rgba(255,255,255,0.09)` | Card borders |
-| `--text-primary` | `#f0f2f8` | Body text |
-| `--text-secondary` | `#8892a4` | Subdued text |
-| `--text-muted` | `#4b5568` | Labels, timestamps |
-
-### Component Classes
-
-| Class | Description |
-|---|---|
-| `.app-shell` | Full-height flex column wrapper |
-| `.app-header` | Sticky top bar with blur backdrop |
-| `.app-main` | Centered content area (max 1200px) |
-| `.glass-panel` | Frosted glass card |
-| `.btn-primary` | Blue filled button with glow |
-| `.btn-danger` | Red outlined button for stop actions |
-| `.btn-secondary` | Ghost button for secondary actions |
-| `.badge` | Small inline label (`.badge-blue`, `.badge-green`, `.badge-red`) |
-| `.waveform` + `.waveform-bar` | Animated audio waveform indicator |
-| `.pulse-ring` | Animated ring around the stop button |
-| `.spinner` | CSS-only loading spinner |
-| `.transcript-area` | Scrollable transcript display box |
-| `.empty-state` | Centered icon + text placeholder |
-| `.alert-error` | Red error banner |
-
-### Animations
-
-| Animation | Used by |
-|---|---|
-| `wave` | Waveform bars — simulates live audio activity |
-| `ring-pulse` | Stop button ring — pulses while recording |
-| `spin` | Loading spinner |
+### Color Palette
+- **Background**: Deep obsidian (`#080b14`)
+- **Accent**: Electric blue (`#4f8ef7`)
+- **Speaker Colors**: Blue, Green, Purple, and Yellow for diarization clarity.
+- **Surface**: Frosted glass effects via `backdrop-filter`.
 
 ---
 
@@ -330,8 +234,8 @@ The entire visual design is driven by CSS custom properties defined in `:root`.
 
 | Limitation | Detail |
 |---|---|
-| **LocalStorage only** | Transcripts are stored in the browser. Clearing browser data will erase them. There is no cloud sync. |
-| **Single tab** | Two browser tabs recording simultaneously would interfere with localStorage writes. |
+| **IndexedDB only** | Transcripts are stored in the browser's IndexedDB. Clearing browser site data will erase them. There is no cloud sync. |
+| **High Capacity** | Unlike `localStorage`, IndexedDB can store gigabytes of data, but it is still local to the specific browser/device. |
 | **Temporary key per session** | A new temporary key is minted on every recording start. Keys expire after 1 hour but are not explicitly revoked on stop. |
 | **Browser mic only** | The app uses `MicrophoneSource` from `@soniox/client`, which requires `getUserMedia`. It does not support file upload or server-side audio. |
 | **Real-time model only** | Only the `stt-rt-v4` real-time model is used. Batch file transcription (async jobs) is not exposed in the UI. |
