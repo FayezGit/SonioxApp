@@ -13,6 +13,9 @@ export default function Home() {
     <div className="app-shell">
       {/* Sidebar / Header */}
       <header className="app-header">
+        <div className="app-logo">
+          🎙 Soniox <span>Studio</span>
+        </div>
         <nav className="app-nav">
           {(['studio', 'library'] as Tab[]).map((tab) => (
             <button
@@ -26,8 +29,7 @@ export default function Home() {
                 {tab === 'library' && '📚'}
               </span>
               <span className="nav-text">
-                {tab === 'studio'  && (tab === 'studio' ? 'Studio' : '')}
-                {tab === 'library' && (tab === 'library' ? 'Library' : '')}
+                {tab === 'studio' ? 'Studio' : 'Library'}
               </span>
             </button>
           ))}

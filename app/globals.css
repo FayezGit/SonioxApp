@@ -266,7 +266,15 @@ button { font-family: inherit; }
   max-width: var(--content-max-width);
   margin: 0 auto;
   overflow-x: hidden;
-  padding: 2.5rem 1.5rem 5rem;
+  padding: 2.5rem 1.5rem 6rem; /* extra bottom padding for mobile */
+}
+
+@media (min-width: 1024px) {
+  .app-main {
+    margin-left: 280px; /* Offset for sidebar */
+    max-width: calc(100% - 280px);
+    padding: 4rem 3rem;
+  }
 }
 
 
