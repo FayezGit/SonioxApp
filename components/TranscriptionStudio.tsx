@@ -1,115 +1,254 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
-import { SonioxClient } from '@soniox/client';
+import React, { useState, useRef } from 'react';
+import { SonioxClient, Recording, RealtimeToken } from '@soniox/client';
 import { saveTranscript } from '@/lib/storage';
 
-export default function TranscriptionStudio() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [isClient, setIsClient] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sessionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+const SPEAKER_COLORS = [
+  'var(--speaker-1)',
+  'var(--speaker-2)',
+  'var(--speaker-3)',
+  'var(--speaker-4)',
+];
 
-  useEffect(() => {
-    // eslint-disable-next-line
-    setIsClient(true);
-  }, []);
+type Segment = { speaker?: string; color: string; text: string; isFinal: boolean };
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      const client = new SonioxClient({
-        api_key: async () => {
-          const res = await fetch('/api/token', { method: 'POST' });
-          if (!res.ok) throw new Error('Failed to fetch temporary token');
-          const data = await res.json();
-          // Adjust based on the actual response structure of createTemporaryKey
-          return data.key || data.api_key || data.temporary_api_key || data.token || ''; 
-        },
-      });
+function buildSegments(tokens: RealtimeToken[], speakerMap: Map<string, number>): Segment[] {
+  const segments: Segment[] = [];
+  let current: Segment | null = null;
 
-      // Assuming standard STT Realtime config
-      const session = client.realtime.stt({
-        model: 'en_v2', 
-        enable_speaker_diarization: true,
-      });
-      sessionRef.current = session;
+  for (const token of tokens) {
+    const speaker = token.speaker;
 
-      if (session.on) {
-         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-         session.on('result', (result: any) => {
-           if (result.text) {
-             setTranscript((prev) => prev + result.text + ' ');
-           } else if (result.tokens) {
-             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-             const text = result.tokens.map((t: any) => t.text).join(' ');
-             setTranscript((prev) => prev + text + ' ');
-           }
-         });
+    // Resolve speaker color (mutates the map, but this is called outside render)
+    let color = SPEAKER_COLORS[0];
+    if (speaker) {
+      if (!speakerMap.has(speaker)) {
+        speakerMap.set(speaker, speakerMap.size % SPEAKER_COLORS.length);
       }
+      color = SPEAKER_COLORS[speakerMap.get(speaker)!];
+    }
 
-      setIsRecording(true);
-      setTranscript('');
-      
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      mediaRecorderRef.current.ondataavailable = async (e) => {
-        if (e.data.size > 0 && sessionRef.current && sessionRef.current.send) {
-             const buffer = await e.data.arrayBuffer();
-             sessionRef.current.send(buffer);
-        }
-      };
-      mediaRecorderRef.current.start(250);
+    if (!current || current.speaker !== speaker || current.isFinal !== token.is_final) {
+      current = { speaker, color, text: token.text, isFinal: token.is_final };
+      segments.push(current);
+    } else {
+      current.text += token.text;
+    }
+  }
 
-    } catch (error) {
-      console.error("Failed to start recording", error);
-      alert("Failed to start recording. Please check microphone permissions.");
+  return segments;
+}
+
+export default function TranscriptionStudio() {
+  const [isRecording, setIsRecording]     = useState(false);
+  const [isStopping, setIsStopping]       = useState(false);
+  const [segments, setSegments]           = useState<Segment[]>([]);
+  const [finalCharCount, setFinalCharCount] = useState(0);
+  const [error, setError]                 = useState<string | null>(null);
+  const [saved, setSaved]                 = useState(false);
+
+  const recordingRef = useRef<Recording | null>(null);
+  const startTimeRef = useRef<number>(0);
+  // Accumulate final tokens across result frames; never read during render
+  const finalTokensRef = useRef<RealtimeToken[]>([]);
+  // Stable speaker-to-color map; mutated only inside event handlers
+  const speakerMapRef  = useRef<Map<string, number>>(new Map());
+
+  const startRecording = () => {
+    setError(null);
+    setSaved(false);
+    setSegments([]);
+    setFinalCharCount(0);
+    finalTokensRef.current = [];
+    speakerMapRef.current  = new Map();
+
+    const client = new SonioxClient({
+      config: async () => {
+        const res = await fetch('/api/token', { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to fetch temporary token');
+        const data = await res.json() as { api_key: string };
+        return { api_key: data.api_key };
+      },
+    });
+
+    // record() is synchronous — attach listeners before any async work begins
+    const recording = client.realtime.record({
+      model: 'stt-rt-v4',
+      enable_speaker_diarization: true,
+    });
+
+    recording.on('result', (result) => {
+      // Each result is a snapshot: final + non-final tokens for this frame.
+      // Accumulate finals; replace non-finals each frame.
+      const incomingFinals    = result.tokens.filter(t => t.is_final);
+      const incomingNonFinals = result.tokens.filter(t => !t.is_final);
+
+      finalTokensRef.current = [...finalTokensRef.current, ...incomingFinals];
+
+      const allTokens = [...finalTokensRef.current, ...incomingNonFinals];
+      const newSegments = buildSegments(allTokens, speakerMapRef.current);
+
+      setSegments(newSegments);
+      setFinalCharCount(finalTokensRef.current.map(t => t.text).join('').trim().length);
+    });
+
+    recording.on('error', (err) => {
+      console.error('Recording error:', err);
+      setError(err.message);
+      setIsRecording(false);
+      setIsStopping(false);
+      recordingRef.current = null;
+    });
+
+    recording.on('finished', () => {
+      setIsRecording(false);
+      setIsStopping(false);
+      recordingRef.current = null;
+    });
+
+    recordingRef.current = recording;
+    startTimeRef.current = Date.now();
+    setIsRecording(true);
+  };
+
+  const stopRecording = async () => {
+    if (!recordingRef.current) return;
+    setIsStopping(true);
+
+    const text = finalTokensRef.current.map(t => t.text).join('').trim();
+    const durationSeconds = Math.round((Date.now() - startTimeRef.current) / 1000);
+
+    try {
+      await recordingRef.current.stop();
+    } catch {
+      // Recording may already be done; proceed to save
+    }
+
+    if (text) {
+      saveTranscript({ text, durationSeconds });
+      setSaved(true);
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    }
-    if (sessionRef.current) {
-       if (sessionRef.current.close) sessionRef.current.close();
-    }
-    setIsRecording(false);
-    if (transcript.trim()) {
-       saveTranscript({ text: transcript.trim(), durationSeconds: Math.floor(Math.random() * 60) + 10 }); 
-    }
-  };
-
-  if (!isClient) return null;
+  const isListening = isRecording && !isStopping;
 
   return (
-    <div className="glass-panel p-8 max-w-4xl mx-auto w-full mt-12 flex flex-col items-center">
-      <h2 className="text-3xl font-bold mb-6 text-center">Live Transcription Studio</h2>
-      
-      <div className="flex gap-4 mb-8">
+    <div style={{ maxWidth: '860px', margin: '0 auto' }}>
+      {/* Page heading */}
+      <div style={{ marginBottom: '2rem' }}>
+        <h1 className="section-heading">Live Transcription Studio</h1>
+        <p className="section-sub">
+          Real-time speech-to-text with multi-speaker diarization
+        </p>
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="alert-error" style={{ marginBottom: '1.5rem' }}>
+          <span>⚠️</span> {error}
+        </div>
+      )}
+
+      {/* Saved banner */}
+      {saved && !isRecording && (
+        <div style={{
+          background: 'var(--green-dim)',
+          border: '1px solid rgba(52,211,153,0.3)',
+          borderRadius: 'var(--radius-md)',
+          padding: '12px 16px',
+          color: 'var(--green)',
+          fontSize: '0.875rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          ✓ Transcript saved to your Library
+        </div>
+      )}
+
+      {/* Controls row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
         {!isRecording ? (
-          <button onClick={startRecording} className="btn-primary">
-            Start Recording
+          <button id="btn-start-recording" onClick={startRecording} className="btn-primary">
+            <span>🎙</span> Start Recording
           </button>
         ) : (
-          <button onClick={stopRecording} className="btn-secondary !text-red-400 !border-red-400 hover:!bg-red-500/10 pulse-animation">
-            Stop Recording
+          <button
+            id="btn-stop-recording"
+            onClick={stopRecording}
+            disabled={isStopping}
+            className={`btn-danger${isStopping ? '' : ' pulse-ring'}`}
+          >
+            {isStopping ? (
+              <><div className="spinner" /> Stopping…</>
+            ) : (
+              <><span>⏹</span> Stop Recording</>
+            )}
           </button>
+        )}
+
+        {/* Waveform indicator while listening */}
+        {isListening && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            <div className="waveform">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="waveform-bar" />
+              ))}
+            </div>
+            Listening…
+          </div>
         )}
       </div>
 
-      <div className="w-full min-h-[300px] p-6 bg-black/20 rounded-xl border border-white/5 shadow-inner">
-        {!transcript && !isRecording && (
-          <p className="text-gray-500 text-center mt-20">Click &apos;Start Recording&apos; to begin.</p>
-        )}
-        {!transcript && isRecording && (
-          <p className="text-gray-400 animate-pulse text-center mt-20">Listening...</p>
-        )}
-        <p className="text-lg leading-relaxed tracking-wide text-gray-200">{transcript}</p>
+      {/* Transcript area */}
+      <div className="glass-panel" style={{ padding: '1.5rem' }}>
+        <div className="transcript-area" style={{ border: 'none', background: 'transparent', minHeight: '360px' }}>
+          {segments.length === 0 ? (
+            <div className="transcript-placeholder">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+              <span>{isRecording ? 'Waiting for speech…' : 'Click Start Recording to begin'}</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {segments.map((seg, i) => (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {seg.speaker && (
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      color: seg.color,
+                    }}>
+                      {seg.speaker}
+                    </span>
+                  )}
+                  <p style={{
+                    fontSize: '1.0625rem',
+                    lineHeight: 1.7,
+                    color: seg.isFinal ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    fontStyle: seg.isFinal ? 'normal' : 'italic',
+                  }}>
+                    {seg.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Character count — driven by state, not ref */}
+      {finalCharCount > 0 && (
+        <p style={{ marginTop: '0.75rem', fontSize: '0.8125rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+          {finalCharCount} chars finalized
+        </p>
+      )}
     </div>
   );
 }
