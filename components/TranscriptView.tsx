@@ -7,13 +7,11 @@ type Props = {
 };
 
 export default function TranscriptView({ segments }: Props) {
-  let lastSpeaker: string | undefined;
-
   return (
     <div className="transcript-content">
       {segments.map((seg, i) => {
-        const showSpeaker = seg.speaker && seg.speaker !== lastSpeaker;
-        if (seg.speaker) lastSpeaker = seg.speaker;
+        const prevSeg = i > 0 ? segments[i - 1] : null;
+        const showSpeaker = seg.speaker && (!prevSeg || prevSeg.speaker !== seg.speaker);
         
         return (
           <div key={i} className="transcript-segment">
