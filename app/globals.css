@@ -176,41 +176,73 @@ button { font-family: inherit; }
 
 .app-nav {
   display: flex;
-  flex-direction: row;
-  width: auto;
-  background: var(--glass-bg);
-  padding: 4px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--glass-border);
   gap: 4px;
-  margin-top: 0;
+  background: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+}
+
+@media (max-width: 1023px) {
+  .app-nav {
+    flex-direction: row;
+    width: 100%;
+    max-width: 400px;
+    justify-content: space-around;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-nav {
+    flex-direction: column;
+    width: 100%;
+    gap: 0.5rem;
+    margin-top: 2rem;
+  }
 }
 
 .nav-btn {
   width: auto;
-  padding: 8px 18px;
-  font-size: 0.875rem;
+  padding: 10px 18px;
+  font-size: 0.9375rem;
   font-weight: 500;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--ease);
-  white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 8px;
-  justify-content: center;
+  gap: 12px;
+}
+
+@media (max-width: 1023px) {
+  .nav-btn {
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.75rem;
+    padding: 8px;
+    flex: 1;
+    justify-content: center;
+  }
+  .nav-icon { font-size: 1.25rem; }
+}
+
+@media (min-width: 1024px) {
+  .nav-btn {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .nav-icon {
-  font-size: 1.125rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 24px;
   flex-shrink: 0;
+  font-size: 1.125rem;
 }
 
 .nav-text {
