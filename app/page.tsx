@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import TranscriptionStudio from "@/components/TranscriptionStudio";
+import Library from "@/components/Library";
+import CostDashboard from "@/components/CostDashboard";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'studio' | 'library' | 'dashboard'>('studio');
@@ -19,8 +21,8 @@ export default function Home() {
       
       <main className="flex flex-col gap-8 items-center sm:items-start w-full">
         {activeTab === 'studio' && <TranscriptionStudio />}
-        {activeTab === 'library' && <div className="text-center w-full mt-24 text-gray-500 text-lg">Library coming soon...</div>}
-        {activeTab === 'dashboard' && <div className="text-center w-full mt-24 text-gray-500 text-lg">Dashboard coming soon...</div>}
+        {activeTab === 'library' && <Library />}
+        {activeTab === 'dashboard' && <CostDashboard />}
       </main>
     </div>
   );
