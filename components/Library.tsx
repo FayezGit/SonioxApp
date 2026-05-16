@@ -7,6 +7,7 @@ export default function Library() {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   
   useEffect(() => {
+    // eslint-disable-next-line
     setTranscripts(getTranscripts());
   }, []);
 

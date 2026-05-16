@@ -8,10 +8,12 @@ export default function TranscriptionStudio() {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [isClient, setIsClient] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sessionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line
     setIsClient(true);
   }, []);
 
@@ -37,10 +39,12 @@ export default function TranscriptionStudio() {
       sessionRef.current = session;
 
       if (session.on) {
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
          session.on('result', (result: any) => {
            if (result.text) {
              setTranscript((prev) => prev + result.text + ' ');
            } else if (result.tokens) {
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
              const text = result.tokens.map((t: any) => t.text).join(' ');
              setTranscript((prev) => prev + text + ' ');
            }
@@ -99,7 +103,7 @@ export default function TranscriptionStudio() {
 
       <div className="w-full min-h-[300px] p-6 bg-black/20 rounded-xl border border-white/5 shadow-inner">
         {!transcript && !isRecording && (
-          <p className="text-gray-500 text-center mt-20">Click 'Start Recording' to begin.</p>
+          <p className="text-gray-500 text-center mt-20">Click &apos;Start Recording&apos; to begin.</p>
         )}
         {!transcript && isRecording && (
           <p className="text-gray-400 animate-pulse text-center mt-20">Listening...</p>
