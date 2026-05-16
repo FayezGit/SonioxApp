@@ -142,6 +142,7 @@ function buildFinalSegments(
 export default function TranscriptionStudio() {
   // ── UI state ───────────────────────────────────────────────────────
   const [isRecording, setIsRecording]     = useState(false);
+  const [isLoading, setIsLoading]         = useState(false);  // token fetch in progress
   const [isStopping, setIsStopping]       = useState(false);
   const [status, setStatus]               = useState('');
   const [error, setError]                 = useState<string | null>(null);
@@ -170,41 +171,59 @@ export default function TranscriptionStudio() {
   /* ── Start recording ─────────────────────────────────────────────── */
   // sessionStart is passed in from the onClick handler (where Date.now() is
   // called) so this function body stays pure and satisfies react-hooks/purity.
-  const startRecording = (sessionStart: number) => {
+  const startRecording = async (sessionStart: number) => {
     setError(null);
     setSaved(false);
     setFinalSegments([]);
     setHypothesis('');
-    setStatus('Starting…');
+    setStatus('');
     setFinalCharCount(0);
     setDurationSecs(0);
     finalTextRef.current  = '';
     speakerMapRef.current = new Map();
 
-    // Microphone access requires a secure context (HTTPS or localhost).
-    // On mobile, plain HTTP connections disable navigator.mediaDevices entirely.
+    // Microphone requires a secure context (HTTPS or localhost).
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       setError(
         'Microphone access requires HTTPS. ' +
-        'You are on HTTP — open the app via https:// or run the dev server ' +
-        'with: npm run dev:https'
+        'Open the app via https:// or run: npm run dev:https'
       );
       return;
     }
 
+    // ── Step 1: fetch token eagerly with visible loading state ──────────────
+    // Doing this BEFORE calling the SDK means cert/network errors are
+    // immediately visible instead of silently resetting the button.
+    setIsLoading(true);
+    setStatus('Fetching token…');
+    let apiKey: string;
+    try {
+      const res = await fetch('/api/token', { method: 'POST' });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json() as { api_key: string };
+      apiKey = data.api_key;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // 'Failed to fetch' = network error or cert not trusted on mobile
+      const hint = msg.toLowerCase().includes('fetch')
+        ? ' (Is the dev server running? Did you accept the HTTPS certificate?)'
+        : '';
+      setError(`Could not reach server: ${msg}${hint}`);
+      setIsLoading(false);
+      setStatus('');
+      return;
+    }
+    setIsLoading(false);
+    setStatus('Connecting…');
 
+    // ── Step 2: start the SDK with the pre-fetched static key ──────────────
     const client = new SonioxClient({
-      config: async () => {
-        setStatus('Fetching token…');
-        const res = await fetch('/api/token', { method: 'POST' });
-        if (!res.ok) throw new Error(`Token fetch failed (${res.status})`);
-        return (await res.json()) as { api_key: string };
-      },
+      config: { api_key: apiKey },
     });
 
     // record() is synchronous — listeners must be attached before any await
     const recording = client.realtime.record({
-      model: 'stt-rt-v4',                     // multilingual, 60+ languages
+      model: 'stt-rt-v4',
       enable_speaker_diarization: true,
       enable_language_identification: true,
       ...(language
@@ -217,31 +236,28 @@ export default function TranscriptionStudio() {
 
     /**
      * result.tokens is a COMPLETE SNAPSHOT of all tokens from session start.
-     *
-     * Strategy:
-     *   - Split tokens into finals vs non-finals
-     *   - Finals → rebuild stable segment list (only grows)
-     *   - Non-finals → join as plain hypothesis string (replaces itself)
-     *   - finalTextRef accumulates plain text of all finals for reliable save
+     * Finals: stable, only grows. Non-finals: current hypothesis, replaces itself.
      */
     recording.on('result', (result) => {
       const finals    = result.tokens.filter(t => t.is_final);
       const nonFinals = result.tokens.filter(t => !t.is_final);
-
-      // Accumulate final plain text for saving
       finalTextRef.current = finals.map(t => t.text).join('').trim();
-
-      // Update stable final segments
       setFinalSegments(buildFinalSegments(finals, speakerMapRef.current));
-
-      // Update current hypothesis (non-final, ephemeral)
       setHypothesis(nonFinals.map(t => t.text).join(''));
     });
 
     recording.on('error', (err) => {
       console.error('[Soniox] error:', err);
       trySave(sessionStart);
-      setError(err.message);
+      // Surface friendly messages for the most common mobile failures
+      const raw = err.message ?? String(err);
+      const friendly =
+        raw.includes('Permission denied') || raw.includes('NotAllowedError')
+          ? 'Microphone permission denied. Allow microphone access in your browser settings and try again.'
+          : raw.includes('NotFoundError') || raw.includes('Requested device not found')
+            ? 'No microphone found. Connect a microphone and try again.'
+            : raw;
+      setError(friendly);
       setStatus('error');
       setIsRecording(false);
       setIsStopping(false);
@@ -258,7 +274,6 @@ export default function TranscriptionStudio() {
     });
 
     recordingRef.current = recording;
-    setDurationSecs(0);
     setIsRecording(true);
   };
 
@@ -291,6 +306,7 @@ export default function TranscriptionStudio() {
   };
 
   const isListening = isRecording && status === 'recording';
+  const isBusy      = isLoading || isRecording;  // disables the language select
   const hasContent  = finalSegments.length > 0 || hypothesis.length > 0;
 
   /* ── Render ──────────────────────────────────────────────────────── */
@@ -327,7 +343,7 @@ export default function TranscriptionStudio() {
           id="language-select"
           value={language}
           onChange={e => setLanguage(e.target.value)}
-          disabled={isRecording}
+          disabled={isBusy}
           className="lang-select"
         >
           {LANGUAGES.map(l => (
@@ -336,7 +352,13 @@ export default function TranscriptionStudio() {
         </select>
 
         {/* Record / Stop button */}
-        {!isRecording ? (
+        {isLoading ? (
+          /* Token fetch in progress — show a disabled loading button */
+          <button className="btn-primary" disabled>
+            <div className="spinner" style={{ width: 16, height: 16 }} />
+            {status || 'Connecting…'}
+          </button>
+        ) : !isRecording ? (
           <button
             id="btn-start-recording"
             onClick={() => startRecording(Date.now())}
