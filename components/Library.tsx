@@ -2,28 +2,55 @@
 
 import React, { useEffect, useState } from 'react';
 import TranscriptView from '@/components/TranscriptView';
-import { Transcript, getTranscripts, deleteTranscript } from '@/lib/storage';
+import { Transcript, getTranscripts, deleteTranscript, migrateFromLocalStorage } from '@/lib/storage';
 import {
   formatTranscriptPlainText,
   getTranscriptSegments,
   transcriptPreviewText,
 } from '@/lib/transcript';
 
-export default function Library() {
-  const [transcripts, setTranscripts] = useState<Transcript[]>(() => {
-    if (typeof window === 'undefined') return [];
-    return getTranscripts();
-  });
-  const [activeTranscript, setActiveTranscript] = useState<Transcript | null>(null);
+type Props = {
+  /** Changes whenever the parent wants Library to re-sync with localStorage. */
+  refreshKey?: string;
+};
 
-  const handleDelete = (id: string) => {
-    deleteTranscript(id);
-    setTranscripts(getTranscripts());
+export default function Library({ refreshKey }: Props) {
+  const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+  const [activeTranscript, setActiveTranscript] = useState<Transcript | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadTranscripts = async () => {
+    try {
+      const data = await getTranscripts();
+      setTranscripts(data);
+      setError(null);
+    } catch (err) {
+      setError("Failed to load transcripts from local storage.");
+      console.error(err);
+    }
+  };
+
+  // Re-read storage whenever the parent signals a refresh (e.g. tab becomes active)
+  useEffect(() => {
+    const init = async () => {
+      await migrateFromLocalStorage();
+      await loadTranscripts();
+    };
+    init();
+  }, [refreshKey]);
+
+  const handleDelete = async (id: string) => {
+    await deleteTranscript(id);
+    await loadTranscripts();
     if (activeTranscript?.id === id) setActiveTranscript(null);
   };
 
   const handleDownload = (transcript: Transcript) => {
     const body = formatTranscriptPlainText(transcript);
+    if (!body.trim()) {
+      alert("This transcript is empty and cannot be downloaded.");
+      return;
+    }
     const blob = new Blob([body], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -62,9 +89,9 @@ export default function Library() {
   return (
     <div>
       <div className="section-header-row">
-        <div style={{ flex: 1 }}>
+        <div className="flex-1">
           <h1 className="section-heading">Transcription Library</h1>
-          <p className="section-sub" style={{ marginBottom: 0 }}>
+          <p className="section-sub mb-0">
             Your saved recordings — stored locally in your browser
           </p>
         </div>
@@ -75,9 +102,13 @@ export default function Library() {
         )}
       </div>
 
-      <div style={{ height: '2rem' }} />
+      <div className="spacer-2rem" />
 
-      {transcripts.length === 0 ? (
+      {error ? (
+        <div className="alert-error">
+          ⚠️ {error}
+        </div>
+      ) : transcripts.length === 0 ? (
         <div className="glass-panel">
           <div className="empty-state">
             <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25">
@@ -94,7 +125,7 @@ export default function Library() {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <div className="library-list">
           {transcripts.map((t) => (
             <div
               key={t.id}
@@ -109,23 +140,14 @@ export default function Library() {
                 }
               }}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+              <div className="library-card-content">
+                <div className="library-card-meta">
+                  <span className="library-card-date">
                     {formatDate(t.date)}
                   </span>
                   <span className="badge badge-blue">{formatDuration(t.durationSeconds)}</span>
                 </div>
-                <p style={{
-                  fontSize: '0.9375rem',
-                  lineHeight: 1.6,
-                  color: 'var(--text-secondary)',
-                  overflow: 'hidden',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  margin: 0,
-                }}>
+                <p className="library-card-preview">
                   {transcriptPreviewText(t)}
                 </p>
               </div>
@@ -150,8 +172,7 @@ export default function Library() {
                 <button
                   type="button"
                   onClick={() => handleDelete(t.id)}
-                  className="btn-secondary"
-                  style={{ color: 'var(--red)', borderColor: 'rgba(248,113,113,0.3)' }}
+                  className="btn-secondary btn-danger-soft"
                   title="Delete transcript"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -220,8 +241,7 @@ export default function Library() {
               </button>
               <button
                 type="button"
-                className="btn-secondary"
-                style={{ color: 'var(--red)', borderColor: 'rgba(248,113,113,0.3)' }}
+                className="btn-secondary btn-danger-soft"
                 onClick={() => handleDelete(activeTranscript.id)}
                 title="Delete transcript"
               >

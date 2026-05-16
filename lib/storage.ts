@@ -1,14 +1,6 @@
-/**
- * @fileoverview Client-side localStorage persistence layer for transcripts.
- *
- * All functions are SSR-safe — they short-circuit when `window` is unavailable
- * (e.g. during Next.js server-side rendering).
- *
- * Storage key: "soniox_transcripts"
- * Format:      JSON array of {@link Transcript}, newest first.
- */
+import Dexie, { type Table } from 'dexie';
 
-/** One speaker-attributed block in a saved or live transcript. */
+/** Minimal token shape from Soniox realtime `result` events. */
 export interface TranscriptSegment {
   speaker?: string;
   color: string;
@@ -19,7 +11,7 @@ export interface TranscriptSegment {
  * A single saved transcript produced from a real-time recording session.
  */
 export interface Transcript {
-  /** UUID generated at save time via `crypto.randomUUID()`. */
+  /** UUID generated at save time. */
   id: string;
   /** Flat text (preview / legacy); derived from segments when saving. */
   text: string;
@@ -31,61 +23,84 @@ export interface Transcript {
   durationSeconds: number;
 }
 
-const STORAGE_KEY = 'soniox_transcripts';
+/**
+ * Dexie Database Schema
+ */
+class SonioxDatabase extends Dexie {
+  transcripts!: Table<Transcript>;
+
+  constructor() {
+    super('SonioxDatabase');
+    this.version(1).stores({
+      transcripts: 'id, date' // primary key and index
+    });
+  }
+}
+
+export const db = new SonioxDatabase();
 
 /**
- * Read all saved transcripts from localStorage, newest first.
- *
- * @returns Array of transcripts, or `[]` if storage is empty, unavailable, or corrupt.
+ * Read all saved transcripts from IndexedDB, newest first.
  */
-export const getTranscripts = (): Transcript[] => {
-  if (typeof window === 'undefined') return [];
+export const getTranscripts = async (): Promise<Transcript[]> => {
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    // Sort by date descending
+    return await db.transcripts.orderBy('date').reverse().toArray();
   } catch (error) {
-    console.error('Failed to get transcripts from local storage', error);
+    console.error('Failed to get transcripts from IndexedDB', error);
     return [];
   }
 };
 
 /**
- * Persist a new transcript to localStorage.
- *
- * A unique `id` (UUID) and `date` (ISO timestamp) are generated automatically.
- * The new transcript is prepended so the list stays newest-first.
- *
- * @param transcript - Transcript data without the auto-generated `id` and `date`.
+ * Persist a new transcript to IndexedDB.
  */
-export const saveTranscript = (transcript: Omit<Transcript, 'id' | 'date'>) => {
-  if (typeof window === 'undefined') return;
+export const saveTranscript = async (transcript: Omit<Transcript, 'id' | 'date'>): Promise<boolean> => {
   try {
-    const transcripts = getTranscripts();
     const newTranscript: Transcript = {
       ...transcript,
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
     };
-    // Prepend so the list is always newest-first
-    transcripts.unshift(newTranscript);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(transcripts));
+    await db.transcripts.add(newTranscript);
+    return true;
   } catch (error) {
-    console.error('Failed to save transcript to local storage', error);
+    console.error('Failed to save transcript to IndexedDB', error);
+    return false;
   }
 };
 
 /**
  * Remove a single transcript by its UUID.
- *
- * @param id - The `id` field of the transcript to delete.
  */
-export const deleteTranscript = (id: string) => {
-  if (typeof window === 'undefined') return;
+export const deleteTranscript = async (id: string): Promise<void> => {
   try {
-    const transcripts = getTranscripts();
-    const updated = transcripts.filter((t) => t.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await db.transcripts.delete(id);
   } catch (error) {
     console.error('Failed to delete transcript', error);
+  }
+};
+
+/**
+ * Migration Utility: Move data from localStorage to IndexedDB.
+ * Call this once during app initialization.
+ */
+export const migrateFromLocalStorage = async () => {
+  if (typeof window === 'undefined') return;
+  const STORAGE_KEY = 'soniox_transcripts';
+  const data = localStorage.getItem(STORAGE_KEY);
+  if (!data) return;
+
+  try {
+    const legacyTranscripts: Transcript[] = JSON.parse(data);
+    if (legacyTranscripts.length > 0) {
+      console.log(`Migrating ${legacyTranscripts.length} transcripts to IndexedDB...`);
+      // Use bulkAdd to import everything at once
+      await db.transcripts.bulkAdd(legacyTranscripts);
+      localStorage.removeItem(STORAGE_KEY);
+      console.log('Migration complete. LocalStorage cleared.');
+    }
+  } catch (error) {
+    console.error('Migration failed', error);
   }
 };

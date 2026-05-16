@@ -15,12 +15,19 @@ export const SPEAKER_COLORS: string[] = [
 
 /**
  * Build stable segments from finalized tokens (same speaker merged).
- * Mutates speakerMap — call only inside event handlers, never during render.
+ *
+ * Works on a local copy of `speakerMap` so it is safe to call multiple times
+ * (e.g. under React Strict Mode double-invocation) without accumulating stale
+ * entries. New speaker→color assignments are flushed back to the caller's ref
+ * after iteration.
  */
 export function buildFinalSegments(
   finalTokens: FinalizedToken[],
   speakerMap: Map<string, number>,
 ): TranscriptSegment[] {
+  // Work on a snapshot so re-runs are idempotent
+  const localMap = new Map(speakerMap);
+
   const segments: TranscriptSegment[] = [];
   let current: TranscriptSegment | null = null;
 
@@ -32,10 +39,10 @@ export function buildFinalSegments(
 
     let color = SPEAKER_COLORS[0];
     if (speaker) {
-      if (!speakerMap.has(speaker)) {
-        speakerMap.set(speaker, speakerMap.size % SPEAKER_COLORS.length);
+      if (!localMap.has(speaker)) {
+        localMap.set(speaker, localMap.size % SPEAKER_COLORS.length);
       }
-      color = SPEAKER_COLORS[speakerMap.get(speaker)!];
+      color = SPEAKER_COLORS[localMap.get(speaker)!];
     }
     if (!current || current.speaker !== speaker) {
       current = { speaker, color, text: t.text };
@@ -44,6 +51,12 @@ export function buildFinalSegments(
       current.text += t.text;
     }
   }
+
+  // Flush any newly discovered speakers back to the caller's map
+  for (const [key, value] of localMap) {
+    if (!speakerMap.has(key)) speakerMap.set(key, value);
+  }
+
   return segments;
 }
 

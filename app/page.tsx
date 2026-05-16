@@ -33,10 +33,14 @@ export default function Home() {
         </nav>
       </header>
 
-      {/* Main content */}
+      {/* Main content — both panels stay mounted to preserve recording state */}
       <main className="app-main">
-        {activeTab === 'studio'  && <TranscriptionStudio />}
-        {activeTab === 'library' && <Library />}
+        <div hidden={activeTab !== 'studio'}>
+          <TranscriptionStudio />
+        </div>
+        <div hidden={activeTab !== 'library'}>
+          <Library refreshKey={activeTab} />
+        </div>
       </main>
     </div>
   );

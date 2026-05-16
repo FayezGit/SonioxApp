@@ -42,6 +42,16 @@ export default function TranscriptionStudio() {
    * This is more reliable than reading state inside the finished event.
    */
   const finalTextRef  = useRef('');
+  /**
+   * Mirrors sessionStartTime state so event-handler closures can read the
+   * *current* start time without going stale. Always set alongside the state.
+   */
+  const sessionStartTimeRef = useRef<number | null>(null);
+  /**
+   * Caches the last minted temporary API key and its expiry so that resume
+   * sessions within the validity window skip an unnecessary round-trip.
+   */
+  const cachedTokenRef = useRef<{ api_key: string; expires_at: string } | null>(null);
 
   // ── Auto-scroll ───────────────────────────────────────────────────
   useEffect(() => {
@@ -64,8 +74,10 @@ export default function TranscriptionStudio() {
       setDurationSecs(0);
       finalTextRef.current  = '';
       speakerMapRef.current = new Map();
+      sessionStartTimeRef.current = sessionStart;
       setSessionStartTime(sessionStart);
-    } else if (!sessionStartTime) {
+    } else if (!sessionStartTimeRef.current) {
+      sessionStartTimeRef.current = sessionStart;
       setSessionStartTime(sessionStart);
     }
 
@@ -78,29 +90,37 @@ export default function TranscriptionStudio() {
       return;
     }
 
-    // ── Step 1: fetch token eagerly with visible loading state ──────────────
+    // ── Step 1: fetch token — reuse cached if still valid ────────────────────
     // Doing this BEFORE calling the SDK means cert/network errors are
     // immediately visible instead of silently resetting the button.
-    setIsLoading(true);
-    setStatus('Fetching token…');
+    const cached = cachedTokenRef.current;
+    const isTokenValid = cached && new Date(cached.expires_at).getTime() - Date.now() > 30_000;
+
     let apiKey: string;
-    try {
-      const res = await fetch('/api/token', { method: 'POST' });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const data = await res.json() as { api_key: string };
-      apiKey = data.api_key;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // 'Failed to fetch' = network error or cert not trusted on mobile
-      const hint = msg.toLowerCase().includes('fetch')
-        ? ' (Is the dev server running? Did you accept the HTTPS certificate?)'
-        : '';
-      setError(`Could not reach server: ${msg}${hint}`);
+    if (isTokenValid) {
+      apiKey = cached!.api_key;
+    } else {
+      setIsLoading(true);
+      setStatus('Fetching token…');
+      try {
+        const res = await fetch('/api/token', { method: 'POST' });
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const data = await res.json() as { api_key: string; expires_at: string };
+        cachedTokenRef.current = data;
+        apiKey = data.api_key;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // 'Failed to fetch' = network error or cert not trusted on mobile
+        const hint = msg.toLowerCase().includes('fetch')
+          ? ' (Is the dev server running? Did you accept the HTTPS certificate?)'
+          : '';
+        setError(`Could not reach server: ${msg}${hint}`);
+        setIsLoading(false);
+        setStatus('');
+        return;
+      }
       setIsLoading(false);
-      setStatus('');
-      return;
     }
-    setIsLoading(false);
     setStatus('Connecting…');
 
     // ── Step 2: start the SDK with the pre-fetched static key ──────────────
@@ -134,6 +154,8 @@ export default function TranscriptionStudio() {
         for (const t of newFinals) {
           finalTextRef.current += t.text;
         }
+        // Keep char count in sync so the stats footer renders
+        setFinalCharCount(finalTextRef.current.length);
       }
 
       setDisplaySegments(
@@ -177,11 +199,14 @@ export default function TranscriptionStudio() {
 
   /**
    * Updates the duration based on the current elapsed time in this sub-session.
+   * Reads from ref (not state) to avoid stale closure inside event handlers.
    */
   const updateFinalDuration = () => {
-    if (sessionStartTime) {
-      const elapsed = Math.round((Date.now() - sessionStartTime) / 1000);
+    const start = sessionStartTimeRef.current;
+    if (start) {
+      const elapsed = Math.round((Date.now() - start) / 1000);
       setDurationSecs(prev => prev + elapsed);
+      sessionStartTimeRef.current = null;
       setSessionStartTime(null);
     }
   };
@@ -189,7 +214,7 @@ export default function TranscriptionStudio() {
   /**
    * Manually save the accumulated transcript and clear the studio.
    */
-  const handleSave = () => {
+  const handleSave = async () => {
     const segments = buildFinalSegments(
       finalTokensRef.current,
       speakerMapRef.current,
@@ -197,7 +222,11 @@ export default function TranscriptionStudio() {
     const text = segments.map(s => s.text).join('').trim() || finalTextRef.current.trim();
     if (!text) return;
 
-    saveTranscript({ text, segments, durationSeconds: durationSecs });
+    const ok = await saveTranscript({ text, segments, durationSeconds: durationSecs });
+    if (!ok) {
+      setError('Failed to save — browser storage may be full or corrupted. Try deleting old transcripts in the Library.');
+      return;
+    }
     
     // Clear everything for a fresh start
     setSaved(true);
@@ -207,6 +236,7 @@ export default function TranscriptionStudio() {
     finalTokensRef.current = [];
     finalTextRef.current = '';
     speakerMapRef.current = new Map();
+    sessionStartTimeRef.current = null;
     setSessionStartTime(null);
   };
 
@@ -275,13 +305,14 @@ export default function TranscriptionStudio() {
         {/* Record / Stop button */}
         {isLoading ? (
           /* Token fetch in progress — show a disabled loading button */
-          <button className="btn-primary" disabled>
+          <button type="button" className="btn-primary" disabled>
             <div className="spinner" style={{ width: 16, height: 16 }} />
             {status || 'Connecting…'}
           </button>
         ) : !isRecording ? (
           <div className="studio-actions">
             <button
+              type="button"
               id="btn-start-recording"
               onClick={() => startRecording(Date.now())}
               className="btn-primary"
@@ -290,6 +321,7 @@ export default function TranscriptionStudio() {
             </button>
             {hasContent && (
               <button
+                type="button"
                 onClick={handleSave}
                 className="btn-secondary"
               >
@@ -299,6 +331,7 @@ export default function TranscriptionStudio() {
           </div>
         ) : (
           <button
+            type="button"
             id="btn-stop-recording"
             onClick={stopRecording}
             disabled={isStopping}

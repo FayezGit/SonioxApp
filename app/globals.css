@@ -65,29 +65,7 @@ html, body {
   height: 100%;
 }
 
-/* Custom scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
 
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0.1);
-}
 
 body {
   font-family: var(--font-inter, 'Inter'), system-ui, -apple-system, sans-serif;
@@ -163,22 +141,6 @@ button { font-family: inherit; }
   }
 }
 
-.app-logo {
-  font-size: 1.25rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
-}
-
-@media (max-width: 1023px) {
-  .app-logo {
-    display: none;
-  }
-}
-
-.app-logo span {
-  color: var(--accent);
-}
 
 .app-nav {
   display: flex;
@@ -297,53 +259,6 @@ button { font-family: inherit; }
 }
 
 /* ─── Stat Card ──────────────────────────────────────────────────── */
-.stat-card {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  padding: 1.75rem 2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  transition: all var(--ease);
-  position: relative;
-  overflow: hidden;
-}
-
-.stat-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%);
-  pointer-events: none;
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255,255,255,0.14);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-}
-
-.stat-label {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-muted);
-}
-
-.stat-value {
-  font-size: 2.25rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1;
-}
-
-.stat-sub {
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  margin-top: 0.25rem;
-}
 
 /* ─── Buttons ────────────────────────────────────────────────────── */
 .btn-primary {
@@ -465,14 +380,6 @@ button { font-family: inherit; }
   50%       { opacity: 0.2; transform: scale(1.06); }
 }
 
-.pulse-animation {
-  animation: opacity-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes opacity-pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.5; }
-}
 
 /* ─── Waveform Bars (listening indicator) ────────────────────────── */
 .waveform {
@@ -511,6 +418,7 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 1.5rem;
 }
 
 /* ─── Transcript Panel ─────────────────────────────────────────── */
@@ -790,6 +698,7 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 1.5rem;
 }
 
 /* ─── Studio Controls ────────────────────────────────────────────── */
@@ -802,13 +711,6 @@ button { font-family: inherit; }
   height: 2rem;
 }
 
-.alert-error {
-  margin-bottom: 1.5rem;
-}
-
-.alert-saved {
-  margin-bottom: 1.5rem;
-}
 
 .studio-controls {
   display: flex;
@@ -879,13 +781,6 @@ button { font-family: inherit; }
   margin: 0;
 }
 
-/* Hypothesis (non-final) — appears below all finalized text */
-.transcript-segment.hypothesis { margin-top: 0.25rem; }
-
-.hypothesis-text {
-  color: var(--text-secondary);
-  font-style: italic;
-}
 
 /* Footer stats */
 .transcript-footer {
@@ -893,6 +788,60 @@ button { font-family: inherit; }
   font-size: 0.8125rem;
   color: var(--text-muted);
   text-align: right;
+}
+
+/* ─── Library Utilities ─────────────────────────────────────────── */
+.library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.library-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.library-card-meta {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.library-card-date {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.library-card-preview {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 0;
+}
+
+.btn-danger-soft {
+  color: var(--red) !important;
+  border-color: rgba(248,113,113,0.3) !important;
+}
+
+.btn-danger-soft:hover {
+  background: var(--red-dim) !important;
+  border-color: var(--red) !important;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.mb-0 {
+  margin-bottom: 0;
 }
 
 /* ─── Responsive Helpers ─────────────────────────────────────────── */

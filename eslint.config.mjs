@@ -16,6 +16,11 @@ const eslintConfig = defineConfig([
     "scratch/**",
     ".worktrees/**",
   ]),
+  {
+    rules: {
+      "react-hooks/exhaustive-deps": "error",
+    },
+  },
 ]);
 
 export default eslintConfig;
