@@ -180,7 +180,7 @@ Mints a short-lived temporary API key for the browser to open a WebSocket transc
 ## Core Components
 
 ### `TranscriptionStudio`
-The main recording interface. It handles the full lifecycle of a Soniox real-time session, including microphone access, token accumulation, and speaker-grouped segment rendering.
+The main recording interface. It features a persistent solid bottom deck, live microphone recording with real-time speaker diarization, animated speech waveform, and smart layout centering/scrolling.
 
 ### `Library`
 An archive of saved sessions stored in IndexedDB. It features automatic data migration, asynchronous loading for performance, and tools for downloading or deleting past transcripts.

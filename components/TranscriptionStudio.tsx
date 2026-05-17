@@ -17,11 +17,24 @@ export default function TranscriptionStudio() {
   const [status, setStatus]               = useState('');
   const [error, setError]                 = useState<string | null>(null);
   const [saved, setSaved]                 = useState(false);
-  const [language, setLanguage]           = useState('');
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const [langSearch, setLangSearch] = useState('');
   // Used only for the footer display — updated from event handlers
   const [finalCharCount, setFinalCharCount] = useState(0);
   const [durationSecs, setDurationSecs]     = useState(0);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [dotCount, setDotCount] = useState(3);
+
+  // Cycle dots animation while recording
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(() => {
+      setDotCount(prev => (prev % 3) + 1);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isRecording]);
 
   // ── Transcript display state ───────────────────────────────────────
   // displaySegments: merged final and non-final tokens for seamless real-time rendering
@@ -52,6 +65,113 @@ export default function TranscriptionStudio() {
    * sessions within the validity window skip an unnecessary round-trip.
    */
   const cachedTokenRef = useRef<{ api_key: string; expires_at: string } | null>(null);
+  const langDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── LocalStorage Helpers ──────────────────────────────────────────
+  const persistSession = (tokens: RealtimeToken[], speakers: Map<string, number>) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('soniox_studio_tokens', JSON.stringify(tokens));
+      localStorage.setItem('soniox_studio_speaker_map', JSON.stringify(Array.from(speakers.entries())));
+    } catch (e) {
+      console.error('Failed to persist session to localStorage', e);
+    }
+  };
+
+  const clearPersistedSession = () => {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem('soniox_studio_tokens');
+    localStorage.removeItem('soniox_studio_speaker_map');
+    localStorage.removeItem('soniox_studio_duration');
+  };
+
+  const toggleLanguage = (code: string) => {
+    if (code === '') {
+      setSelectedLanguages([]);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('soniox_studio_languages', JSON.stringify([]));
+      }
+      return;
+    }
+
+    setSelectedLanguages(prev => {
+      let next: string[];
+      if (prev.includes(code)) {
+        next = prev.filter(c => c !== code);
+      } else {
+        next = [...prev, code];
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('soniox_studio_languages', JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
+        setIsLangDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // ── Hydration from LocalStorage on mount ──────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const storedTokensStr = localStorage.getItem('soniox_studio_tokens');
+      const storedSpeakersStr = localStorage.getItem('soniox_studio_speaker_map');
+      const storedDurationStr = localStorage.getItem('soniox_studio_duration');
+      const storedLanguagesStr = localStorage.getItem('soniox_studio_languages');
+      const storedLanguageStr = localStorage.getItem('soniox_studio_language');
+
+      let restoredTokens: RealtimeToken[] = [];
+      let restoredSpeakers: Array<[string, number]> = [];
+      let restoredDuration = 0;
+
+      if (storedTokensStr) {
+        restoredTokens = JSON.parse(storedTokensStr) as RealtimeToken[];
+        finalTokensRef.current = restoredTokens;
+        
+        let text = '';
+        for (const t of restoredTokens) {
+          text += t.text;
+        }
+        finalTextRef.current = text;
+        setFinalCharCount(text.length);
+      }
+
+      if (storedSpeakersStr) {
+        restoredSpeakers = JSON.parse(storedSpeakersStr) as Array<[string, number]>;
+        speakerMapRef.current = new Map(restoredSpeakers);
+      }
+
+      if (storedDurationStr) {
+        restoredDuration = Number(storedDurationStr);
+        setDurationSecs(restoredDuration);
+      }
+
+      if (storedLanguagesStr) {
+        setSelectedLanguages(JSON.parse(storedLanguagesStr) as string[]);
+      } else if (storedLanguageStr) {
+        setSelectedLanguages([storedLanguageStr]);
+      }
+
+      if (restoredTokens.length > 0) {
+        setDisplaySegments(
+          buildFinalSegments(restoredTokens, speakerMapRef.current)
+        );
+      }
+    } catch (e) {
+      console.error('Failed to restore transcription studio session', e);
+    }
+  }, []);
 
   // ── Auto-scroll ───────────────────────────────────────────────────
   useEffect(() => {
@@ -133,8 +253,8 @@ export default function TranscriptionStudio() {
       model: 'stt-rt-v4',
       enable_speaker_diarization: true,
       enable_language_identification: true,
-      ...(language
-        ? { language_hints: [language], language_hints_strict: true }
+      ...(selectedLanguages.length > 0
+        ? { language_hints: selectedLanguages, language_hints_strict: true }
         : {}),
     });
 
@@ -156,6 +276,8 @@ export default function TranscriptionStudio() {
         }
         // Keep char count in sync so the stats footer renders
         setFinalCharCount(finalTextRef.current.length);
+        
+        persistSession(finalTokensRef.current, speakerMapRef.current);
       }
 
       setDisplaySegments(
@@ -205,7 +327,13 @@ export default function TranscriptionStudio() {
     const start = sessionStartTimeRef.current;
     if (start) {
       const elapsed = Math.round((Date.now() - start) / 1000);
-      setDurationSecs(prev => prev + elapsed);
+      setDurationSecs(prev => {
+        const next = prev + elapsed;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('soniox_studio_duration', String(next));
+        }
+        return next;
+      });
       sessionStartTimeRef.current = null;
       setSessionStartTime(null);
     }
@@ -229,6 +357,7 @@ export default function TranscriptionStudio() {
     }
     
     // Clear everything for a fresh start
+    clearPersistedSession();
     setSaved(true);
     setFinalCharCount(0);
     setDurationSecs(0);
@@ -238,6 +367,23 @@ export default function TranscriptionStudio() {
     speakerMapRef.current = new Map();
     sessionStartTimeRef.current = null;
     setSessionStartTime(null);
+  };
+
+  /**
+   * Wipes the active studio transcription session.
+   */
+  const handleClear = () => {
+    clearPersistedSession();
+    setSaved(false);
+    setFinalCharCount(0);
+    setDurationSecs(0);
+    setDisplaySegments([]);
+    finalTokensRef.current = [];
+    finalTextRef.current = '';
+    speakerMapRef.current = new Map();
+    sessionStartTimeRef.current = null;
+    setSessionStartTime(null);
+    setShowClearConfirm(false);
   };
 
   /* ── Stop recording ──────────────────────────────────────────────── */
@@ -289,101 +435,226 @@ export default function TranscriptionStudio() {
       {/* ── Controls ── */}
       <div className="studio-controls">
 
-        {/* Language selector */}
-        <select
-          id="language-select"
-          value={language}
-          onChange={e => setLanguage(e.target.value)}
-          disabled={isBusy}
-          className="lang-select"
-        >
-          {languages.map(l => (
-            <option key={l.code} value={l.code}>{l.label}</option>
-          ))}
-        </select>
-
-        {/* Record / Stop button */}
-        {isLoading ? (
-          /* Token fetch in progress — show a disabled loading button */
-          <button type="button" className="btn-primary" disabled>
-            <div className="spinner" style={{ width: 16, height: 16 }} />
-            {status || 'Connecting…'}
+        {/* Custom Multi-Select Language Dropdown */}
+        <div className="lang-select-container" ref={langDropdownRef}>
+          <button
+            type="button"
+            className="lang-select-btn"
+            onClick={() => !isBusy && setIsLangDropdownOpen(!isLangDropdownOpen)}
+            disabled={isBusy}
+          >
+            <span className="lang-select-text">
+              {selectedLanguages.length === 0
+                ? 'Auto-detect language'
+                : selectedLanguages.length === 1
+                  ? languages.find(l => l.code === selectedLanguages[0])?.label || selectedLanguages[0]
+                  : `${languages.find(l => l.code === selectedLanguages[0])?.label || selectedLanguages[0]} + ${selectedLanguages.length - 1} more`}
+            </span>
+            <svg
+              className="lang-select-chevron"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#8892a4"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
-        ) : !isRecording ? (
-          <div className="studio-actions">
+
+          {isLangDropdownOpen && (
+            <div className="lang-dropdown-menu">
+              <div className="lang-dropdown-search-wrapper">
+                <input
+                  type="text"
+                  placeholder="Search languages..."
+                  value={langSearch}
+                  onChange={e => setLangSearch(e.target.value)}
+                  className="lang-dropdown-search"
+                  autoFocus
+                />
+              </div>
+              <div className="lang-dropdown-list">
+                {/* Auto-detect item (Clear all) */}
+                <div
+                  className={`lang-dropdown-item auto-detect-item${selectedLanguages.length === 0 ? ' selected' : ''}`}
+                  onClick={() => toggleLanguage('')}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedLanguages.length === 0}
+                    readOnly
+                    className="lang-checkbox"
+                  />
+                  <span className="lang-label">Auto-detect language</span>
+                </div>
+                
+                {/* List of checkable languages (filtered by search) */}
+                {languages
+                  .filter(l => l.code !== '')
+                  .filter(l => l.label.toLowerCase().includes(langSearch.toLowerCase()))
+                  .map(l => {
+                    const isSelected = selectedLanguages.includes(l.code);
+                    return (
+                      <div
+                        key={l.code}
+                        className={`lang-dropdown-item${isSelected ? ' selected' : ''}`}
+                        onClick={() => toggleLanguage(l.code)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          readOnly
+                          className="lang-checkbox"
+                        />
+                        <span className="lang-label">{l.label}</span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="transcript-panel-wrapper" style={{ position: 'relative', width: '100%' }}>
+        <div className={`transcript-panel${(hasContent || isRecording) ? ' has-controls' : ''}`} ref={transcriptPanelRef}>
+          {!hasContent && !isRecording ? (
+            <div className="transcript-placeholder">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+              <span>Choose a language and click the microphone below to start</span>
+            </div>
+          ) : (
+            <TranscriptView segments={displaySegments} />
+          )}
+        </div>
+
+        {/* Integrated Floating Controls inside the transcript panel wrapper */}
+        <div className="studio-floating-layout">
+          <div className="studio-controls-bar">
+          {/* Save Button (Left) */}
+          {(hasContent || isRecording) && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isRecording || !hasContent}
+              className="circle-btn save-btn"
+              title="Save to Library"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </button>
+          )}
+
+          {/* Record / Pause Button (Center Hero Button) */}
+          {isLoading ? (
+            <button type="button" className="circle-btn hero-btn loading-btn" disabled>
+              <div className="spinner" style={{ width: 20, height: 20 }} />
+            </button>
+          ) : !isRecording ? (
             <button
               type="button"
               id="btn-start-recording"
               onClick={() => startRecording(Date.now())}
-              className="btn-primary"
+              className="circle-btn hero-btn start-btn"
+              title={hasContent ? 'Resume Recording' : 'Start Recording'}
             >
-              <span>🎙</span> {hasContent ? 'Resume' : 'Start'} Recording
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+              </svg>
             </button>
-            {hasContent && (
-              <button
-                type="button"
-                onClick={handleSave}
-                className="btn-secondary"
-              >
-                💾 Save to Library
-              </button>
-            )}
-          </div>
-        ) : (
-          <button
-            type="button"
-            id="btn-stop-recording"
-            onClick={stopRecording}
-            disabled={isStopping}
-            className={`btn-danger${isStopping ? '' : ' pulse-ring'}`}
-          >
-            {isStopping
-              ? <><div className="spinner" /> Stopping…</>
-              : <><span>⏸</span> Pause Recording</>}
-          </button>
-        )}
+          ) : (
+            <button
+              type="button"
+              id="btn-stop-recording"
+              onClick={stopRecording}
+              disabled={isStopping}
+              className={`circle-btn hero-btn stop-btn${isStopping ? '' : ' pulse-ring'}`}
+              title="Pause Recording"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="2" x2="18" y2="22" />
+                <line x1="6" y1="2" x2="6" y2="22" />
+              </svg>
+            </button>
+          )}
 
-        {/* Live status */}
+          {/* Clear Button (Right) */}
+          {(hasContent || isRecording) && (
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={isRecording || !hasContent}
+              className="circle-btn clear-btn"
+              title="Clear Transcription"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Animated Status wrapped in rounded rectangle below the buttons */}
         {isRecording && (
-          <div className="studio-status">
-            {isListening ? (
-              <>
-                <div className="waveform">
-                  {[1, 2, 3, 4, 5].map(i => <div key={i} className="waveform-bar" />)}
-                </div>
-                <span>Listening…</span>
-              </>
-            ) : (
-              <>
-                <div className="spinner" style={{ width: 16, height: 16 }} />
-                <span>{status}</span>
-              </>
+          <div className="studio-status-box">
+            {isListening && (
+              <div className="waveform">
+                {[1, 2, 3, 4, 5].map(i => <div key={i} className="waveform-bar" />)}
+              </div>
             )}
+            <span className="status-text-italic">
+              {isListening ? 'listening' : status}
+              <span className="anim-dots">{".".repeat(dotCount)}</span>
+            </span>
           </div>
         )}
       </div>
-
-      {/* ── Transcript area ── */}
-      <div className="transcript-panel" ref={transcriptPanelRef}>
-        {!hasContent && !isRecording ? (
-          <div className="transcript-placeholder">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="1.5">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
-            </svg>
-            <span>Choose a language and click Start Recording</span>
-          </div>
-        ) : (
-          <TranscriptView segments={displaySegments} />
-        )}
-      </div>
+    </div>
 
       {/* ── Stats footer ── */}
       {finalCharCount > 0 && !isRecording && (
         <p className="transcript-footer">
           {finalCharCount} chars · {durationSecs}s recorded
         </p>
+      )}
+
+      {/* ── Confirmation Modal ── */}
+      {showClearConfirm && (
+        <div className="confirm-overlay">
+          <div className="confirm-card">
+            <h2 className="confirm-title">Clear Active Transcription?</h2>
+            <p className="confirm-desc">
+              This will permanently wipe your current session transcript. This action cannot be undone.
+            </p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowClearConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary btn-danger-solid"
+                onClick={handleClear}
+              >
+                Clear Everything
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
