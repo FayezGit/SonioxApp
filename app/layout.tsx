@@ -9,8 +9,7 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: 'Soniox Real-Time Transcription',
-  description: 'Premium real-time speech-to-text using the Soniox API',
+  title: 'Real-Time Transcription',
 };
 
 export const viewport: Viewport = {
