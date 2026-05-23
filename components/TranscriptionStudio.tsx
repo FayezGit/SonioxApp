@@ -11,37 +11,36 @@ import { buildFinalSegments } from '@/lib/transcript';
 
 export default function TranscriptionStudio() {
   // ── UI state ───────────────────────────────────────────────────────
-  const [isRecording, setIsRecording]     = useState(false);
-  const [isLoading, setIsLoading]         = useState(false);  // token fetch in progress
-  const [isStopping, setIsStopping]       = useState(false);
-  const [status, setStatus]               = useState('');
-  const [error, setError]                 = useState<string | null>(null);
-  const [saved, setSaved]                 = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);  // token fetch in progress
+  const [isStopping, setIsStopping] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const [langSearch, setLangSearch] = useState('');
   // Used only for the footer display — updated from event handlers
   const [finalCharCount, setFinalCharCount] = useState(0);
-  const [durationSecs, setDurationSecs]     = useState(0);
+  const [durationSecs, setDurationSecs] = useState(0);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [dotCount, setDotCount] = useState(3);
+  const [snackbarLeaving, setSnackbarLeaving] = useState(false);
 
-  // Cycle dots animation while recording
+  // Auto-dismiss the saved snackbar after 3s (with 300ms exit animation)
   useEffect(() => {
-    if (!isRecording) return;
-    const interval = setInterval(() => {
-      setDotCount(prev => (prev % 3) + 1);
-    }, 500);
-    return () => clearInterval(interval);
-  }, [isRecording]);
+    if (!saved) { setSnackbarLeaving(false); return; }
+    const leaveT = setTimeout(() => setSnackbarLeaving(true), 2700);
+    const removeT = setTimeout(() => setSaved(false), 3000);
+    return () => { clearTimeout(leaveT); clearTimeout(removeT); };
+  }, [saved]);
 
   // ── Transcript display state ───────────────────────────────────────
   // displaySegments: merged final and non-final tokens for seamless real-time rendering
   const [displaySegments, setDisplaySegments] = useState<TranscriptSegment[]>([]);
 
   // ── Refs (never read during render) ───────────────────────────────
-  const recordingRef  = useRef<Recording | null>(null);
+  const recordingRef = useRef<Recording | null>(null);
   const speakerMapRef = useRef<Map<string, number>>(new Map());
   const transcriptPanelRef = useRef<HTMLDivElement>(null);
   /**
@@ -54,7 +53,7 @@ export default function TranscriptionStudio() {
    * Updated on every result event. Used for saving — never set in state.
    * This is more reliable than reading state inside the finished event.
    */
-  const finalTextRef  = useRef('');
+  const finalTextRef = useRef('');
   /**
    * Mirrors sessionStartTime state so event-handler closures can read the
    * *current* start time without going stale. Always set alongside the state.
@@ -121,6 +120,11 @@ export default function TranscriptionStudio() {
     };
   }, []);
 
+  // Clear search input text when language dropdown open state changes
+  useEffect(() => {
+    setLangSearch('');
+  }, [isLangDropdownOpen]);
+
   // ── Hydration from LocalStorage on mount ──────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -138,7 +142,7 @@ export default function TranscriptionStudio() {
       if (storedTokensStr) {
         restoredTokens = JSON.parse(storedTokensStr) as RealtimeToken[];
         finalTokensRef.current = restoredTokens;
-        
+
         let text = '';
         for (const t of restoredTokens) {
           text += t.text;
@@ -192,7 +196,7 @@ export default function TranscriptionStudio() {
       setDisplaySegments([]);
       setFinalCharCount(0);
       setDurationSecs(0);
-      finalTextRef.current  = '';
+      finalTextRef.current = '';
       speakerMapRef.current = new Map();
       sessionStartTimeRef.current = sessionStart;
       setSessionStartTime(sessionStart);
@@ -276,7 +280,7 @@ export default function TranscriptionStudio() {
         }
         // Keep char count in sync so the stats footer renders
         setFinalCharCount(finalTextRef.current.length);
-        
+
         persistSession(finalTokensRef.current, speakerMapRef.current);
       }
 
@@ -355,7 +359,7 @@ export default function TranscriptionStudio() {
       setError('Failed to save — browser storage may be full or corrupted. Try deleting old transcripts in the Library.');
       return;
     }
-    
+
     // Clear everything for a fresh start
     clearPersistedSession();
     setSaved(true);
@@ -400,127 +404,37 @@ export default function TranscriptionStudio() {
   };
 
   const isListening = isRecording && status === 'recording';
-  const isBusy      = isLoading || isRecording;  // disables the language select
-  const hasContent  = displaySegments.length > 0;
+  const isBusy = isLoading || isRecording;  // disables the language select
+  const hasContent = displaySegments.length > 0;
 
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
     <div className="studio-container">
 
-      <div className="section-header-row">
-        <div>
-          <h1 className="section-heading">Live Transcription Studio</h1>
-          <p className="section-sub">
-            Real-time speech-to-text · multi-speaker diarization
-          </p>
-        </div>
-      </div>
-
-      <div className="spacer-2rem" />
-
-      {/* ── Error banner ── */}
-      {error && (
-        <div className="alert-error">
-          ⚠️ {error}
-        </div>
-      )}
-
-      {/* ── Saved banner ── */}
-      {saved && !isRecording && (
-        <div className="alert-saved" style={{ marginBottom: '1.5rem' }}>
-          ✓ Transcript saved to your Library
-        </div>
-      )}
-
-      {/* ── Controls ── */}
-      <div className="studio-controls">
-
-        {/* Custom Multi-Select Language Dropdown */}
-        <div className="lang-select-container" ref={langDropdownRef}>
-          <button
-            type="button"
-            className="lang-select-btn"
-            onClick={() => !isBusy && setIsLangDropdownOpen(!isLangDropdownOpen)}
-            disabled={isBusy}
-          >
-            <span className="lang-select-text">
-              {selectedLanguages.length === 0
-                ? 'Auto-detect language'
-                : selectedLanguages.length === 1
-                  ? languages.find(l => l.code === selectedLanguages[0])?.label || selectedLanguages[0]
-                  : `${languages.find(l => l.code === selectedLanguages[0])?.label || selectedLanguages[0]} + ${selectedLanguages.length - 1} more`}
-            </span>
-            <svg
-              className="lang-select-chevron"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#8892a4"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+      {/* ── Snackbar ── */}
+      {(saved || error) && (
+        <div className={`snackbar${error ? ' snackbar-error' : ''}${snackbarLeaving && !error ? ' leaving' : ''}`}>
+          {error ? error : 'Saved to Library'}
+          {error && (
+            <button
+              type="button"
+              className="snackbar-dismiss"
+              onClick={() => {
+                setSnackbarLeaving(true);
+                setTimeout(() => { setError(null); setSnackbarLeaving(false); }, 280);
+              }}
+              aria-label="Dismiss"
             >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-
-          {isLangDropdownOpen && (
-            <div className="lang-dropdown-menu">
-              <div className="lang-dropdown-search-wrapper">
-                <input
-                  type="text"
-                  placeholder="Search languages..."
-                  value={langSearch}
-                  onChange={e => setLangSearch(e.target.value)}
-                  className="lang-dropdown-search"
-                  autoFocus
-                />
-              </div>
-              <div className="lang-dropdown-list">
-                {/* Auto-detect item (Clear all) */}
-                <div
-                  className={`lang-dropdown-item auto-detect-item${selectedLanguages.length === 0 ? ' selected' : ''}`}
-                  onClick={() => toggleLanguage('')}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedLanguages.length === 0}
-                    readOnly
-                    className="lang-checkbox"
-                  />
-                  <span className="lang-label">Auto-detect language</span>
-                </div>
-                
-                {/* List of checkable languages (filtered by search) */}
-                {languages
-                  .filter(l => l.code !== '')
-                  .filter(l => l.label.toLowerCase().includes(langSearch.toLowerCase()))
-                  .map(l => {
-                    const isSelected = selectedLanguages.includes(l.code);
-                    return (
-                      <div
-                        key={l.code}
-                        className={`lang-dropdown-item${isSelected ? ' selected' : ''}`}
-                        onClick={() => toggleLanguage(l.code)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          readOnly
-                          className="lang-checkbox"
-                        />
-                        <span className="lang-label">{l.label}</span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           )}
         </div>
-      </div>
+      )}
 
-      <div className="transcript-panel-wrapper" style={{ position: 'relative', width: '100%' }}>
+      <div className="transcript-panel-wrapper" style={{ width: '100%' }}>
         <div className={`transcript-panel${(hasContent || isRecording) ? ' has-controls' : ''}`} ref={transcriptPanelRef}>
           {!hasContent && !isRecording ? (
             <div className="transcript-placeholder">
@@ -529,105 +443,169 @@ export default function TranscriptionStudio() {
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
               </svg>
-              <span>Choose a language and click the microphone below to start</span>
+              <span>Press record to begin</span>
             </div>
           ) : (
             <TranscriptView segments={displaySegments} />
           )}
         </div>
 
-        {/* Integrated Floating Controls inside the transcript panel wrapper */}
+        {/* Floating Centered Command Dock Pill at the bottom of the viewport */}
         <div className="studio-floating-layout">
           <div className="studio-controls-bar">
-          {/* Save Button (Left) */}
-          {(hasContent || isRecording) && (
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isRecording || !hasContent}
-              className="circle-btn save-btn"
-              title="Save to Library"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </button>
-          )}
+            {/* Custom Multi-Select Language Dropdown inside Dock */}
+            <div className="lang-select-container" ref={langDropdownRef}>
+              <button
+                type="button"
+                className="lang-select-btn"
+                onClick={() => !isBusy && setIsLangDropdownOpen(!isLangDropdownOpen)}
+                disabled={isBusy}
+              >
+                <span className="lang-select-text">
+                  {selectedLanguages.length === 0
+                    ? 'Auto-detect language'
+                    : selectedLanguages.length === 1
+                      ? languages.find(l => l.code === selectedLanguages[0])?.label || selectedLanguages[0]
+                      : `${languages.find(l => l.code === selectedLanguages[0])?.label || selectedLanguages[0]} + ${selectedLanguages.length - 1} more`}
+                </span>
+                <svg
+                  className="lang-select-chevron"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#8892a4"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
 
-          {/* Record / Pause Button (Center Hero Button) */}
-          {isLoading ? (
-            <button type="button" className="circle-btn hero-btn loading-btn" disabled>
-              <div className="spinner" style={{ width: 20, height: 20 }} />
-            </button>
-          ) : !isRecording ? (
-            <button
-              type="button"
-              id="btn-start-recording"
-              onClick={() => startRecording(Date.now())}
-              className="circle-btn hero-btn start-btn"
-              title={hasContent ? 'Resume Recording' : 'Start Recording'}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              type="button"
-              id="btn-stop-recording"
-              onClick={stopRecording}
-              disabled={isStopping}
-              className={`circle-btn hero-btn stop-btn${isStopping ? '' : ' pulse-ring'}`}
-              title="Pause Recording"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="2" x2="18" y2="22" />
-                <line x1="6" y1="2" x2="6" y2="22" />
-              </svg>
-            </button>
-          )}
+              {isLangDropdownOpen && (
+                <div className="lang-dropdown-menu">
+                  <div className="lang-dropdown-search-wrapper">
+                    <input
+                      type="text"
+                      placeholder="Search languages..."
+                      value={langSearch}
+                      onChange={e => setLangSearch(e.target.value)}
+                      className="lang-dropdown-search"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="lang-dropdown-list">
+                    {!langSearch.trim() && (
+                      <div
+                        className={`lang-dropdown-item auto-detect-item${selectedLanguages.length === 0 ? ' selected' : ''}`}
+                        onClick={() => toggleLanguage('')}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedLanguages.length === 0}
+                          readOnly
+                          className="lang-checkbox"
+                        />
+                        <span className="lang-label">Auto-detect language</span>
+                      </div>
+                    )}
+                    {languages
+                      .filter(l => l.code !== '')
+                      .filter(l => l.label.toLowerCase().includes(langSearch.trim().toLowerCase()))
+                      .map(l => {
+                        const isSelected = selectedLanguages.includes(l.code);
+                        return (
+                          <div
+                            key={l.code}
+                            className={`lang-dropdown-item${isSelected ? ' selected' : ''}`}
+                            onClick={() => toggleLanguage(l.code)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              readOnly
+                              className="lang-checkbox"
+                            />
+                            <span className="lang-label">{l.label}</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
 
-          {/* Clear Button (Right) */}
-          {(hasContent || isRecording) && (
-            <button
-              type="button"
-              onClick={() => setShowClearConfirm(true)}
-              disabled={isRecording || !hasContent}
-              className="circle-btn clear-btn"
-              title="Clear Transcription"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-          )}
-        </div>
+            {/* Dock Buttons */}
+            <div className="dock-buttons">
+              {/* Save Button */}
+              {(hasContent || isRecording) && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isRecording || !hasContent}
+                  className="circle-btn save-btn"
+                  title="Save to Library"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+              )}
 
-        {/* Animated Status wrapped in rounded rectangle below the buttons */}
-        {isRecording && (
-          <div className="studio-status-box">
-            {isListening && (
-              <div className="waveform">
-                {[1, 2, 3, 4, 5].map(i => <div key={i} className="waveform-bar" />)}
-              </div>
-            )}
-            <span className="status-text-italic">
-              {isListening ? 'listening' : status}
-              <span className="anim-dots">{".".repeat(dotCount)}</span>
-            </span>
+              {/* Record / Pause Button (Center Hero Button) */}
+              {isLoading ? (
+                <button type="button" className="circle-btn hero-btn loading-btn" disabled>
+                  <div className="spinner" style={{ width: 20, height: 20 }} />
+                </button>
+              ) : !isRecording ? (
+                <button
+                  type="button"
+                  id="btn-start-recording"
+                  onClick={() => startRecording(Date.now())}
+                  className="circle-btn hero-btn start-btn"
+                  title={hasContent ? 'Resume Recording' : 'Start Recording'}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  id="btn-stop-recording"
+                  onClick={stopRecording}
+                  disabled={isStopping}
+                  className={`circle-btn hero-btn stop-btn${isStopping ? '' : ' pulse-ring'}`}
+                  title="Pause Recording"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="2" x2="18" y2="22" />
+                    <line x1="6" y1="2" x2="6" y2="22" />
+                  </svg>
+                </button>
+              )}
+
+              {/* Clear Button */}
+              {(hasContent || isRecording) && (
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirm(true)}
+                  disabled={isRecording || !hasContent}
+                  className="circle-btn clear-btn"
+                  title="Clear Transcription"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
-    </div>
-
-      {/* ── Stats footer ── */}
-      {finalCharCount > 0 && !isRecording && (
-        <p className="transcript-footer">
-          {finalCharCount} chars · {durationSecs}s recorded
-        </p>
-      )}
 
       {/* ── Confirmation Modal ── */}
       {showClearConfirm && (
