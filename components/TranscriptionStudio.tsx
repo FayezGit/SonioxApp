@@ -254,7 +254,7 @@ export default function TranscriptionStudio() {
 
     // record() is synchronous — listeners must be attached before any await
     const recording = client.realtime.record({
-      model: 'stt-rt-v4',
+      model: 'stt-rt-v5',
       enable_speaker_diarization: true,
       enable_language_identification: true,
       ...(selectedLanguages.length > 0
